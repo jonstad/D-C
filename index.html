@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D-C: Dungeon Crawler</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/view.css">
+<link rel="stylesheet" href="css/hud.css">
+</head>
+<body>
+
+  <div id="app">
+
+    <!-- BOOT SCREEN -->
+    <section id="screen-boot" class="screen">
+      <h1 class="title">D-C</h1>
+      <p class="subtitle">A First-Person Dungeon Crawler</p>
+      <button id="btn-start" class="btn-primary">Begin Descent</button>
+    </section>
+
+    <!-- CLASS SELECT SCREEN -->
+    <section id="screen-class-select" class="screen hidden">
+      <h2>Choose Your Adventurer</h2>
+      <div id="class-cards" class="class-cards"></div>
+      <button id="btn-confirm-class" class="btn-primary" disabled>Enter the Dungeon</button>
+    </section>
+
+    <!-- EXPLORE SCREEN -->
+    <section id="screen-explore" class="screen hidden">
+      <div id="game-layout">
+
+        <div id="viewport-column">
+          <div id="viewport"></div>
+          <div id="controls">
+            <div class="control-row">
+              <button data-action="turnLeft" title="Turn Left">&#8630;</button>
+              <button data-action="moveForward" title="Move Forward">&#8593;</button>
+              <button data-action="turnRight" title="Turn Right">&#8631;</button>
+            </div>
+            <div class="control-row">
+              <button data-action="strafeLeft" title="Strafe Left">&#8634;</button>
+              <button data-action="moveBackward" title="Move Backward">&#8595;</button>
+              <button data-action="strafeRight" title="Strafe Right">&#8635;</button>
+            </div>
+          </div>
+        </div>
+
+        <aside id="hud-column">
+          <div id="hud-stats" class="panel"></div>
+          <div id="hud-minimap" class="panel">
+            <canvas id="minimap-canvas" width="180" height="180"></canvas>
+          </div>
+          <div id="hud-log" class="panel">
+            <h3>Log</h3>
+            <ul id="log-list"></ul>
+          </div>
+        </aside>
+
+      </div>
+    </section>
+
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

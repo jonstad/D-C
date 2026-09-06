@@ -1,0 +1,242 @@
+#viewport-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+#viewport {
+  position: relative;
+  width: 640px;
+  max-width: 90vw;
+  aspect-ratio: 4 / 3;
+  background: linear-gradient(
+    to bottom,
+    #14100c 0%, #14100c 46%,
+    #0a0806 46%, #0a0806 54%,
+    #0d0906 54%, #0d0906 100%
+  );
+  overflow: hidden;
+  border: 3px solid var(--panel-border);
+  border-radius: 4px;
+  box-shadow: inset 0 0 60px rgba(0,0,0,0.85);
+}
+
+/* The corridor is a real CSS 3D scene: .scene-3d is the shared 3D space
+   (perspective = camera focal length, preserve-3d so its children sort
+   and combine with each other instead of each flattening to 2D on its
+   own), and every floor/wall panel inside it is a flat div that JS
+   places with `transform: translate3d(...) rotate*(...)` — left/top/
+   width/height just give it a size and starting position centered on
+   the scene, in local pre-rotation pixels. */
+
+.scene-3d {
+  position: absolute;
+  inset: 0;
+  perspective: 620px;
+  perspective-origin: 50% 50%;
+  transform-style: preserve-3d;
+}
+
+.scene-slice {
+  position: absolute;
+  backface-visibility: hidden;
+}
+
+.wall-front {
+  background-image: url('../assets/walls/brick.png');
+  background-repeat: repeat;
+  /* background-size (the brick tile pitch) is set in JS, alongside the
+     3D transform, from the same PITCH constant every wall/floor panel
+     uses. */
+  box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
+}
+
+.floor-slice {
+  background-image: url('../assets/floor/flagstone.png');
+  background-repeat: repeat;
+  /* No inset box-shadow here on purpose: each depth slice is a separate
+     element, and an inset shadow darkens ALL FOUR edges of its own box —
+     including the near/far edges that exactly line up with the next
+     slice's edge. Two adjacent slices each darkening that same shared
+     line doubled up into a visible seam. The global .viewport-fog vignette
+     already supplies the atmosphere, so slices themselves stay plain. */
+}
+
+.ceiling-slice {
+  /* Same brick as the walls (dungeons like this are usually vaulted
+     stonework, not a distinct material), darkened with a flat tint
+     since it's overhead and out of the torchlight — no inset shadow,
+     same seam reason as .floor-slice above. */
+  background-image:
+    linear-gradient(rgba(5, 4, 3, 0.55), rgba(5, 4, 3, 0.55)),
+    url('../assets/walls/brick.png');
+  background-repeat: no-repeat, repeat;
+  background-size: 100% 100%, 170px 170px;
+}
+
+.wall-side {
+  background-repeat: repeat;
+}
+
+/* Brick image on the bottom layer, the old near-dark/far-light gradient
+   kept as a tint on top of it — same shading cue as before, still showing
+   the bricks underneath since the tint fades to transparent by 60%. */
+.wall-side.left {
+  background-image:
+    linear-gradient(to right, rgba(10, 9, 8, 0.45), rgba(10, 9, 8, 0) 60%),
+    url('../assets/walls/brick.png');
+  background-repeat: no-repeat, repeat;
+}
+
+.wall-side.right {
+  background-image:
+    linear-gradient(to left, rgba(10, 9, 8, 0.45), rgba(10, 9, 8, 0) 60%),
+    url('../assets/walls/brick.png');
+  background-repeat: no-repeat, repeat;
+}
+
+.opening-door {
+  position: absolute;
+  background: repeating-linear-gradient(
+    90deg,
+    #3a2612 0px, #3a2612 6px,
+    #2a1a0c 6px, #2a1a0c 8px
+  );
+  border: 3px solid #1a0f06;
+}
+
+.opening-stairs {
+  position: absolute;
+  background: repeating-linear-gradient(
+    0deg,
+    #2a2620 0px, #2a2620 6px,
+    #1c1913 6px, #1c1913 10px
+  );
+  /* The plain dark banding above reads as just another wall next to
+     wall-front's stone tones — same family of dark brownish grays, no
+     strong signal that this one is special. The gold border/glow plus
+     the label below are what actually say "this is the way down". */
+  border: 3px solid var(--accent);
+  box-shadow: inset 0 0 50px rgba(0,0,0,0.75), 0 0 34px rgba(201, 162, 75, 0.4);
+}
+
+.stairs-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--accent);
+  font-size: 1.3rem;
+  letter-spacing: 0.12rem;
+  text-shadow: 0 0 14px rgba(201, 162, 75, 0.9), 0 0 4px rgba(0, 0, 0, 0.85);
+  animation: stairs-pulse 1.8s ease-in-out infinite;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.stairs-label .chevron {
+  display: block;
+  font-size: 1.6rem;
+  line-height: 1;
+  margin-top: 6px;
+}
+
+@keyframes stairs-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* A wall torch is a few children of one wall panel (see torchEl in
+   renderer.js): a .torch-shadow left flush on the wall, and a
+   .torch-rig pushed forward off the wall with translateZ. The wall
+   panel this attaches to gets transform-style: preserve-3d specifically
+   so that push works — real depth, not a flat decal — while everything
+   else on that same wall (the brickwork) still flattens onto its plane
+   as before.
+
+   The rig itself holds two .torch-blade children, both the same size
+   and sharing the rig's own default (center) transform-origin: one
+   unrotated, one rotateY(90deg). That makes a small "cross" of two
+   identical torch planes crossing along the same vertical centerline —
+   whichever blade is closer to face-on for the camera's current angle
+   is what reads, so the torch still looks like a torch even viewed
+   near edge-on (e.g. on the near-side wall, looking straight down the
+   corridor), instead of foreshortening to an unrecognizable sliver the
+   way a single flat plane does. transform-style: preserve-3d on the rig
+   is what lets the two blades keep their own independent rotation
+   instead of both flattening onto the rig's plane. */
+.torch-shadow {
+  position: absolute;
+  background: radial-gradient(ellipse, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.28) 45%, transparent 75%);
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+.torch-rig {
+  position: absolute;
+  pointer-events: none;
+  transform-style: preserve-3d;
+}
+
+.torch-blade {
+  position: absolute;
+  inset: 0;
+}
+
+.torch-blade img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.torch-flame {
+  position: absolute;
+  background: radial-gradient(circle, #ffe0a3 0%, #ffb347 35%, #ff7b00 60%, transparent 78%);
+  border-radius: 50%;
+  filter: blur(1.5px);
+  animation: flicker 1.4s infinite ease-in-out alternate;
+  mix-blend-mode: screen;
+}
+
+@keyframes flicker {
+  0%   { opacity: 0.75; transform: scale(0.95); }
+  100% { opacity: 1;    transform: scale(1.05); }
+}
+
+.viewport-fog {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 55%, transparent 35%, rgba(0,0,0,0.55) 100%);
+}
+
+#controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.control-row button {
+  width: 56px;
+  height: 44px;
+  font-size: 1.2rem;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  color: var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.control-row button:hover {
+  background: var(--stone-mid);
+}

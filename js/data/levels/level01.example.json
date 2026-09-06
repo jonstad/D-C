@@ -1,0 +1,23 @@
+{
+  "_comment": "Example hand-authored level using the exact schema generateDungeon() produces. Not wired up to the loader yet (phase 1 always uses the procedural generator) — this exists so a future 'load an authored level' path has a known-good reference. Drop a level like this into this folder and pass it to loadLevelFromJSON() to use it instead of the generator.",
+  "id": "level01",
+  "width": 3,
+  "height": 3,
+  "start": { "x": 0, "y": 0, "facing": "N" },
+  "tiles": [
+    { "type": "floor", "walls": { "N": true,  "E": false, "S": false, "W": true  }, "features": [] },
+    { "type": "floor", "walls": { "N": true,  "E": false, "S": true,  "W": false }, "features": ["door"] },
+    { "type": "floor", "walls": { "N": true,  "E": true,  "S": false, "W": false }, "features": [] },
+
+    { "type": "floor", "walls": { "N": false, "E": true,  "S": false, "W": true  }, "features": [] },
+    { "type": "floor", "walls": { "N": true,  "E": false, "S": true,  "W": true  }, "features": [] },
+    { "type": "floor", "walls": { "N": false, "E": true,  "S": true,  "W": false }, "features": [] },
+
+    { "type": "floor", "walls": { "N": false, "E": true,  "S": true,  "W": true  }, "features": [] },
+    { "type": "floor", "walls": { "N": true,  "E": false, "S": true,  "W": false }, "features": [] },
+    { "type": "floor", "walls": { "N": false, "E": true,  "S": true,  "W": false }, "features": ["stairsDown"] }
+  ],
+  "exits": [{ "at": [2, 2], "to": null, "type": "stairsDown" }],
+  "encounters": [{ "at": [1, 1], "monsterGroup": "ratPack", "chance": 0.3 }],
+  "items": [{ "at": [0, 1], "itemId": "potion_minor_heal" }]
+}

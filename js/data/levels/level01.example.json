@@ -1,5 +1,5 @@
 {
-  "_comment": "Example hand-authored level using the exact schema generateDungeon() produces — kept as a known-good reference for the schema. The real level01.js (this folder) is the actual fixed opening level main.js loads via loadLevelFromJSON(); every floor after it still comes from the procedural generator.",
+  "_comment": "Raw schema reference: this is the exact JSON shape generateDungeon() (and everything else that produces a level) ultimately builds. Not how you should actually author one by hand, though — level01.txt (this folder) is the real fixed opening level, written in the much friendlier text format world/levelText.js parses; that's what to copy for a new hand-made level. Every floor after level 1 still comes from the procedural generator.",
   "id": "level01",
   "width": 3,
   "height": 3,

@@ -10,8 +10,7 @@ import { initQuests } from './core/questManager.js';
 import { CLASS_DATA } from './data/classes.js';
 import { DEFAULT_PARTY } from './data/partyPresets.js';
 import { Character } from './entities/Character.js';
-import { loadLevelFromJSON } from './world/levelLoader.js';
-import { LEVEL01 } from './data/levels/level01.js';
+import { loadTextLevel, loadProceduralLevel } from './world/levelLoader.js';
 import * as movement from './world/movement.js';
 import { renderScene } from './ui/renderer.js';
 import { renderMinimap } from './ui/minimap.js';
@@ -102,11 +101,20 @@ btnConfirmClass.addEventListener('click', () => {
 });
 
 // --- EXPLORE ----------------------------------------------------------------
-function startExploring() {
+async function startExploring() {
   // Level 1 is always this same hand-authored layout (see
-  // data/levels/level01.js) — only the floors reached afterward, via
-  // world/movement.js's descendLevel(), are procedurally generated.
-  state.map = loadLevelFromJSON(LEVEL01);
+  // data/levels/level01.txt, written in the friendly text format
+  // world/levelText.js parses) — only the floors reached afterward,
+  // via world/movement.js's descendLevel(), are procedurally
+  // generated. Falls back to a random level if the fetch/parse ever
+  // fails for some reason (a bad edit to the text file, the file
+  // missing) rather than leaving the party stuck on a blank screen.
+  try {
+    state.map = await loadTextLevel('js/data/levels/level01.txt');
+  } catch (err) {
+    console.error('Failed to load the fixed opening level, starting on a random one instead:', err);
+    state.map = loadProceduralLevel({ width: 12, height: 12, seed: Date.now() & 0xffffffff });
+  }
   initQuests();
   markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
   const names = state.party.map((c) => c.name);

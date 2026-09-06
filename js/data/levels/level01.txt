@@ -1,0 +1,15 @@
+id: level01-fixed
+facing: N
+
+map:
+#.X.#
+##.##
+##.##
+##..1
+...##
+12.##
+##@##
+
+legend:
+1 = item potion_minor_heal
+2 = encounter slime 0.4

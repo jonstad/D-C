@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/view.css">
 <link rel="stylesheet" href="css/hud.css">
+<link rel="stylesheet" href="css/combat.css">
 </head>
 <body>
 
@@ -56,6 +57,45 @@
             <ul id="log-list"></ul>
           </div>
         </aside>
+
+      </div>
+    </section>
+
+    <!-- COMBAT SCREEN -->
+    <section id="screen-combat" class="screen hidden">
+      <div id="combat-layout">
+
+        <div id="combat-stage">
+          <div id="combat-enemy-wrap">
+            <div id="combat-enemy-shadow"></div>
+            <div id="combat-enemy-sprite"></div>
+            <div id="combat-popups"></div>
+          </div>
+          <div id="combat-enemy-info">
+            <h2 id="combat-enemy-name"></h2>
+            <div class="bar-track"><div id="combat-enemy-hp-fill" class="bar-fill hp" style="width:100%"></div></div>
+          </div>
+        </div>
+
+        <div id="combat-player-info" class="panel">
+          <div class="stat-row"><strong id="combat-player-name"></strong></div>
+          <div class="stat-row"><span>HP</span><span id="combat-player-hp-text"></span></div>
+          <div class="bar-track"><div id="combat-player-hp-fill" class="bar-fill hp"></div></div>
+          <div class="stat-row"><span>MP</span><span id="combat-player-mp-text"></span></div>
+          <div class="bar-track"><div id="combat-player-mp-fill" class="bar-fill mp"></div></div>
+        </div>
+
+        <div id="combat-actions">
+          <button data-combat-action="attack" class="btn-combat">Hit</button>
+          <button data-combat-action="defend" class="btn-combat">Defend</button>
+          <button data-combat-action="spell" class="btn-combat" id="btn-combat-spell">Spell</button>
+          <button data-combat-action="run" class="btn-combat">Run Away</button>
+        </div>
+
+        <div id="combat-log-panel" class="panel">
+          <h3>Battle</h3>
+          <ul id="combat-log-list"></ul>
+        </div>
 
       </div>
     </section>

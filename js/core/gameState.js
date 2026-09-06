@@ -16,6 +16,7 @@ export const state = {
   turnCount: 0,
   discovered: new Set(), // "x,y" keys of tiles the player has seen
   log: [],
+  combat: null, // set by combat/combatEngine.js's startCombat(), null outside combat
 };
 
 export function resetGame() {
@@ -25,6 +26,7 @@ export function resetGame() {
   state.turnCount = 0;
   state.discovered = new Set();
   state.log = [];
+  state.combat = null;
 }
 
 export function addLog(message) {

@@ -37,7 +37,7 @@ export function generateDungeon({
   width = 12,
   height = 12,
   seed = Date.now() & 0xffffffff,
-  monsterGroups = ['ratPack', 'goblinPack'],
+  monsterGroups = ['slime', 'orc', 'skeleton'],
   itemPool = ['potion_minor_heal'],
 } = {}) {
   const rand = mulberry32(seed);

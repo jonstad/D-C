@@ -18,6 +18,6 @@
     { "type": "floor", "walls": { "N": false, "E": true,  "S": true,  "W": false }, "features": ["stairsDown"] }
   ],
   "exits": [{ "at": [2, 2], "to": null, "type": "stairsDown" }],
-  "encounters": [{ "at": [1, 1], "monsterGroup": "ratPack", "chance": 0.3 }],
+  "encounters": [{ "at": [1, 1], "monsterGroup": "slime", "chance": 0.3 }],
   "items": [{ "at": [0, 1], "itemId": "potion_minor_heal" }]
 }

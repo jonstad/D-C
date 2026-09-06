@@ -11,12 +11,18 @@ import { loadProceduralLevel } from './world/levelLoader.js';
 import * as movement from './world/movement.js';
 import { renderScene } from './ui/renderer.js';
 import { renderMinimap } from './ui/minimap.js';
+import * as combat from './combat/combatEngine.js';
+import {
+  renderCombat, spawnPopup, playEnemyAttackAnim, playEnemyHitAnim,
+  playEnemyDefeatAnim, flashPlayerHit,
+} from './ui/combatUI.js';
 
 // --- DOM refs ----------------------------------------------------------
 const screens = {
   boot: document.getElementById('screen-boot'),
   classSelect: document.getElementById('screen-class-select'),
   explore: document.getElementById('screen-explore'),
+  combat: document.getElementById('screen-combat'),
 };
 const btnStart = document.getElementById('btn-start');
 const classCardsEl = document.getElementById('class-cards');
@@ -26,6 +32,24 @@ const hudStatsEl = document.getElementById('hud-stats');
 const minimapCanvas = document.getElementById('minimap-canvas');
 const logListEl = document.getElementById('log-list');
 const controlsEl = document.getElementById('controls');
+
+// --- Combat DOM refs -----------------------------------------------------
+const combatActionsEl = document.getElementById('combat-actions');
+const combatEls = {
+  enemySprite: document.getElementById('combat-enemy-sprite'),
+  enemyShadow: document.getElementById('combat-enemy-shadow'),
+  enemyName: document.getElementById('combat-enemy-name'),
+  enemyHpFill: document.getElementById('combat-enemy-hp-fill'),
+  popups: document.getElementById('combat-popups'),
+  playerInfo: document.getElementById('combat-player-info'),
+  playerName: document.getElementById('combat-player-name'),
+  playerHpText: document.getElementById('combat-player-hp-text'),
+  playerHpFill: document.getElementById('combat-player-hp-fill'),
+  playerMpText: document.getElementById('combat-player-mp-text'),
+  playerMpFill: document.getElementById('combat-player-mp-fill'),
+  actionButtons: Array.from(combatActionsEl.querySelectorAll('button[data-combat-action]')),
+};
+const combatLogListEl = document.getElementById('combat-log-list');
 
 let selectedClassId = null;
 
@@ -122,6 +146,73 @@ bus.on('playerMoved', refreshExploreUI);
 bus.on('playerTurned', refreshExploreUI);
 bus.on('log', appendLogLine);
 
+// --- COMBAT ----------------------------------------------------------------
+combatActionsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-combat-action]');
+  if (!btn) return;
+  const action = btn.dataset.combatAction;
+  if (action === 'attack') combat.playerAttack();
+  else if (action === 'defend') combat.playerDefend();
+  else if (action === 'spell') combat.playerSpell();
+  else if (action === 'run') combat.playerRunAway();
+});
+
+function refreshCombatUI() {
+  renderCombat(combatEls, { player: state.player, combat: state.combat });
+}
+
+bus.on('combatStart', () => {
+  combatEls.enemySprite.classList.remove('anim-attack', 'anim-hit', 'anim-defeat');
+  showScreen('combat');
+  refreshCombatUI();
+});
+
+bus.on('combatEnd', () => {
+  showScreen('explore');
+  refreshExploreUI();
+});
+
+bus.on('playerAttack', ({ amount, isCrit }) => {
+  spawnPopup(combatEls.popups, isCrit ? `-${amount}!` : `-${amount}`, isCrit ? 'crit' : 'damage');
+  playEnemyHitAnim(combatEls.enemySprite);
+  refreshCombatUI();
+});
+
+bus.on('playerSpellHit', ({ amount }) => {
+  spawnPopup(combatEls.popups, `-${amount}`, 'damage');
+  playEnemyHitAnim(combatEls.enemySprite);
+  refreshCombatUI();
+});
+
+bus.on('playerSpellSelf', (effect) => {
+  if (effect.kind === 'heal') spawnPopup(combatEls.popups, `+${effect.amount}`, 'heal');
+  refreshCombatUI();
+});
+
+bus.on('playerDefend', () => {
+  spawnPopup(combatEls.popups, 'Defending!', 'miss');
+  refreshCombatUI();
+});
+
+bus.on('enemyAttack', ({ amount }) => {
+  playEnemyAttackAnim(combatEls.enemySprite);
+  flashPlayerHit(combatEls.playerInfo);
+  spawnPopup(combatEls.popups, `-${amount}`, 'damage');
+  refreshCombatUI();
+});
+
+bus.on('playerRunAttempt', ({ success }) => {
+  spawnPopup(combatEls.popups, success ? 'Got away!' : 'Escape failed!', 'miss');
+  refreshCombatUI();
+});
+
+bus.on('combatVictory', () => {
+  playEnemyDefeatAnim(combatEls.enemySprite);
+  refreshCombatUI();
+});
+
+bus.on('combatLocked', () => refreshCombatUI());
+
 function refreshExploreUI() {
   renderScene(viewportEl, state.map);
   renderMinimap(minimapCanvas, state.map, state.discovered);
@@ -147,9 +238,14 @@ function renderHudStats() {
   `;
 }
 
+// Appended into both the explore screen's log and the combat screen's
+// log, so switching screens never leaves either one missing history —
+// simpler than trying to move one shared <ul> between two sections.
 function appendLogLine(message) {
-  const li = document.createElement('li');
-  li.textContent = message;
-  logListEl.appendChild(li);
-  logListEl.scrollTop = logListEl.scrollHeight;
+  for (const el of [logListEl, combatLogListEl]) {
+    const li = document.createElement('li');
+    li.textContent = message;
+    el.appendChild(li);
+    el.scrollTop = el.scrollHeight;
+  }
 }

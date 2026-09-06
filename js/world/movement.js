@@ -7,6 +7,7 @@ import { state, addLog, markDiscovered } from '../core/gameState.js';
 import { tickWorldTurn } from '../core/turnManager.js';
 import { FACING_VECTORS } from './mapModel.js';
 import { bus } from '../core/eventBus.js';
+import { maybeTriggerTileEncounter } from '../combat/combatEngine.js';
 
 function stepInto(dx, dy) {
   const map = state.map;
@@ -46,6 +47,10 @@ function tryMove(dx, dy, blockedMessage) {
 
 function onArrive() {
   tickWorldTurn();
+  // A wandering-monster roll inside tickWorldTurn() may have already
+  // dropped us into combat — don't also log stairs/items on top of it,
+  // and don't tell explore-only listeners the player "moved" this turn.
+  if (state.screen === 'combat') return;
   checkTileEvents();
   bus.emit('playerMoved');
 }
@@ -53,6 +58,7 @@ function onArrive() {
 function checkTileEvents() {
   const map = state.map;
   const { x, y } = map.playerPos;
+  if (maybeTriggerTileEncounter(map, x, y)) return;
   const exit = map.exitAt(x, y);
   if (exit) addLog(`You see ${exit.type === 'stairsDown' ? 'stairs leading down' : 'an exit'} here.`);
   const items = map.itemsAt(x, y);
@@ -82,11 +88,13 @@ export function strafeRight() {
 export function turnLeft() {
   state.map.playerPos.facing = (state.map.playerPos.facing + 3) % 4;
   tickWorldTurn();
+  if (state.screen === 'combat') return;
   bus.emit('playerTurned');
 }
 
 export function turnRight() {
   state.map.playerPos.facing = (state.map.playerPos.facing + 1) % 4;
   tickWorldTurn();
+  if (state.screen === 'combat') return;
   bus.emit('playerTurned');
 }

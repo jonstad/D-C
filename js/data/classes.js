@@ -7,6 +7,13 @@
 // and no CORS issues. If you later add a build step / dev server, this
 // can be swapped for a fetch('data/classes.json') without touching
 // any calling code — same shape either way.
+//
+// An ability's `target` says who combat/combatEngine.js's playerSpell()
+// resolves it against: omitted (the default) means "the enemy", cast
+// immediately like an attack; 'ally' means the player picks a living
+// party member (any of them, including the caster) before it resolves —
+// see combatEngine.js's pendingSpell/selectSpellTarget() and
+// combat/abilities.js's header comment for how effects read that target.
 
 export const CLASS_DATA = {
   warrior: {
@@ -53,7 +60,7 @@ export const CLASS_DATA = {
     startingMP: 24,
     startingGear: ['weapon_mace', 'armor_robe'],
     abilities: [
-      { id: 'heal', name: 'Heal', mpCost: 4, unlockLevel: 1 },
+      { id: 'heal', name: 'Heal', mpCost: 4, unlockLevel: 1, target: 'ally' },
       { id: 'cure_poison', name: 'Cure Poison', mpCost: 3, unlockLevel: 2 },
       { id: 'bless', name: 'Bless', mpCost: 5, unlockLevel: 3 },
       { id: 'smite', name: 'Smite', mpCost: 6, unlockLevel: 4 },

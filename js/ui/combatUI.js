@@ -8,13 +8,20 @@
 
 function partyCardHTML(char, index, combat) {
   const downed = !char.isAlive();
+  const pendingSpell = combat.pendingSpell;
   // Not "acting" while combat.locked — that window covers both the brief
   // pause after a player's action and the enemy's own turn, so nobody's
   // card should read as active until the next turn is actually theirs.
-  const isActing = !downed && !combat.locked && combat.actingIndex === index;
+  // Also not "acting" while choosing a spell target — the turn indicator
+  // reads "Choose a target for X" instead, so no card should look active.
+  const isActing = !downed && !combat.locked && !pendingSpell && combat.actingIndex === index;
+  // Any living member is a valid Heal target, including the caster —
+  // main.js wires clicks on these straight to selectSpellTarget().
+  const targetable = !!pendingSpell && !downed;
   const classes = ['party-card'];
   if (isActing) classes.push('active-turn');
   if (downed) classes.push('downed');
+  if (targetable) classes.push('targetable');
   const hpPct = Math.max(0, (char.hp / char.maxHP) * 100);
   const mpPct = char.maxMP ? Math.max(0, (char.mp / char.maxMP) * 100) : 0;
   return `
@@ -34,7 +41,7 @@ function partyCardHTML(char, index, combat) {
 // explore's refreshExploreUI), so it never drifts from what happened.
 export function renderCombat(els, { party, combat }) {
   if (!combat) return;
-  const { enemy } = combat;
+  const { enemy, pendingSpell } = combat;
 
   els.enemySprite.style.backgroundImage = `url('${enemy.sprite}')`;
   els.enemyName.textContent = enemy.name;
@@ -42,15 +49,30 @@ export function renderCombat(els, { party, combat }) {
 
   els.partyList.innerHTML = party.map((c, i) => partyCardHTML(c, i, combat)).join('');
 
-  const actor = combat.locked ? null : party[combat.actingIndex];
-  els.turnIndicator.textContent = actor ? `${actor.name}'s turn` : '';
+  // actingIndex never changes while pendingSpell is set (it's still that
+  // caster's turn, just mid-action), so it's always safe to read here —
+  // only the *displayed text* differs while a target is being chosen.
+  const actorChar = party[combat.actingIndex];
+  if (pendingSpell) {
+    els.turnIndicator.textContent = `Choose a target for ${pendingSpell.ability.name}`;
+  } else {
+    els.turnIndicator.textContent = combat.locked ? '' : `${actorChar.name}'s turn`;
+  }
 
-  const ability = actor ? actor.abilities[0] : null;
+  const ability = actorChar ? actorChar.abilities[0] : null;
   const locked = !!combat.locked;
   for (const btn of els.actionButtons) {
     if (btn.dataset.combatAction === 'spell') {
-      btn.disabled = locked || !ability || !actor || actor.mp < ability.mpCost;
-      btn.textContent = ability ? `Spell (${ability.name})` : 'Spell';
+      if (pendingSpell) {
+        // Repurposed as the way out of targeting mode — see main.js's
+        // combat-action click handler, which routes this to
+        // cancelSpellTarget() instead of playerSpell() while pending.
+        btn.disabled = false;
+        btn.textContent = 'Cancel';
+      } else {
+        btn.disabled = locked || !ability || !actorChar || actorChar.mp < ability.mpCost;
+        btn.textContent = ability ? `Spell (${ability.name})` : 'Spell';
+      }
     } else {
       btn.disabled = locked;
     }
@@ -100,4 +122,11 @@ export function playEnemyDefeatAnim(enemySpriteEl) {
 export function flashPartyCardHit(partyListEl, index) {
   const card = partyListEl.querySelector(`[data-party-index="${index}"]`);
   if (card) retrigger(card, 'flash-hit');
+}
+
+// Same idea as flashPartyCardHit but the green "good thing happened"
+// variant — used when an ally-targeted spell (Heal) resolves.
+export function flashPartyCardHeal(partyListEl, index) {
+  const card = partyListEl.querySelector(`[data-party-index="${index}"]`);
+  if (card) retrigger(card, 'flash-heal');
 }

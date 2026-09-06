@@ -9,6 +9,14 @@
 // it's a party wipe. Everything the UI needs to know is emitted on the
 // shared bus (core/eventBus.js); js/ui/combatUI.js never reaches into
 // this module's internals.
+//
+// Spell is a sub-state, not always a single click: an ability whose
+// classes.js `target` is 'ally' (currently just Heal) doesn't resolve
+// immediately — playerSpell() instead stashes it on combat.pendingSpell
+// and waits for the UI to call selectSpellTarget() with whichever
+// living party member got clicked (cancelSpellTarget() backs out for
+// free, no MP spent, turn not consumed). An ability with no `target`
+// (or 'enemy') resolves at once against combat.enemy, same as before.
 
 import { state, addLog } from '../core/gameState.js';
 import { bus } from '../core/eventBus.js';
@@ -65,7 +73,10 @@ export function startCombat(monsterId) {
   const first = firstAliveIndex();
   if (first === null) return null; // safety: nobody able to fight (shouldn't happen)
   const enemy = spawnEnemy(monsterId);
-  state.combat = { enemy, actingIndex: first, defendingIndices: new Set(), locked: false, over: false };
+  state.combat = {
+    enemy, actingIndex: first, defendingIndices: new Set(), locked: false, over: false,
+    pendingSpell: null, // set while waiting on selectSpellTarget() for an ally-targeted ability
+  };
   state.screen = 'combat';
   addLog(`A ${enemy.name} blocks your way!`);
   bus.emit('combatStart', { enemy });
@@ -212,23 +223,61 @@ export function playerSpell() {
     addLog(`Not enough MP for ${char.name} to cast ${ability.name}.`);
     return;
   }
+
+  if (ability.target === 'ally') {
+    // Enter target-selection mode instead of resolving now — no MP
+    // spent and the turn doesn't advance until selectSpellTarget()
+    // actually picks a living party member (see combatUI.js's
+    // .targetable party cards and main.js's click wiring).
+    combat.pendingSpell = { ability };
+    setLocked(combat, true);
+    bus.emit('spellTargetingStart', { ability });
+    return;
+  }
+
   setLocked(combat, true);
   char.mp -= ability.mpCost;
   const effect = resolveAbility(ability.id, char, combat.enemy);
   addLog(effect.message);
-  if (effect.targetsSelf) {
-    if (effect.kind === 'heal') {
-      char.hp = Math.min(char.maxHP, char.hp + effect.amount);
-      addLog(`${char.name} recovers ${effect.amount} HP.`);
-    }
-    bus.emit('playerSpellSelf', { actorIndex: combat.actingIndex, ...effect });
-    advanceTurnOrEnemy(); // a self-targeted spell never ends combat by itself
-  } else {
-    applyDamageToEnemy(effect.amount);
-    addLog(`The ${combat.enemy.name} takes ${effect.amount} damage.`);
-    bus.emit('playerSpellHit', { actorIndex: combat.actingIndex, enemy: combat.enemy, ...effect });
-    afterPlayerOffense();
+  applyDamageToEnemy(effect.amount);
+  addLog(`The ${combat.enemy.name} takes ${effect.amount} damage.`);
+  bus.emit('playerSpellHit', { actorIndex: combat.actingIndex, enemy: combat.enemy, ...effect });
+  afterPlayerOffense();
+}
+
+// Resolves an ally-targeted spell (currently only Heal) against
+// whichever living party member the UI reports was clicked. Ignored if
+// there's no pending spell to resolve, or if the clicked index turned
+// out to be empty/downed (the UI already only marks living cards
+// .targetable, but this is cheap insurance against a stale click).
+export function selectSpellTarget(targetIndex) {
+  const combat = state.combat;
+  if (!combat || combat.over || !combat.pendingSpell) return;
+  const target = state.party[targetIndex];
+  if (!target || !target.isAlive()) return;
+
+  const char = actingChar();
+  const { ability } = combat.pendingSpell;
+  combat.pendingSpell = null;
+  char.mp -= ability.mpCost;
+  const effect = resolveAbility(ability.id, char, target);
+  addLog(effect.message);
+  if (effect.kind === 'heal') {
+    target.hp = Math.min(target.maxHP, target.hp + effect.amount);
+    addLog(`${target.name} recovers ${effect.amount} HP.`);
   }
+  bus.emit('playerSpellAlly', { actorIndex: combat.actingIndex, targetIndex, ...effect });
+  advanceTurnOrEnemy(); // an ally-targeted spell never ends combat by itself
+}
+
+// Backs out of target-selection mode with no cost — no MP spent, no
+// turn consumed, the caster just gets their action back.
+export function cancelSpellTarget() {
+  const combat = state.combat;
+  if (!combat || !combat.pendingSpell) return;
+  combat.pendingSpell = null;
+  setLocked(combat, false);
+  bus.emit('spellTargetingCancel', {});
 }
 
 export function playerRunAway() {

@@ -16,7 +16,7 @@ import { renderMinimap } from './ui/minimap.js';
 import * as combat from './combat/combatEngine.js';
 import {
   renderCombat, spawnPopup, playEnemyAttackAnim, playEnemyHitAnim,
-  playEnemyDefeatAnim, flashPartyCardHit,
+  playEnemyDefeatAnim, flashPartyCardHit, flashPartyCardHeal,
 } from './ui/combatUI.js';
 
 // --- DOM refs ----------------------------------------------------------
@@ -147,10 +147,28 @@ combatActionsEl.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-combat-action]');
   if (!btn) return;
   const action = btn.dataset.combatAction;
+  // While a spell is waiting on a target (see combatUI.js's "Cancel"
+  // relabel), the Spell button's click backs out of targeting instead
+  // of re-triggering it, and the other three buttons are disabled so
+  // there's nothing else for a click here to do.
+  if (state.combat && state.combat.pendingSpell) {
+    if (action === 'spell') combat.cancelSpellTarget();
+    return;
+  }
   if (action === 'attack') combat.playerAttack();
   else if (action === 'defend') combat.playerDefend();
   else if (action === 'spell') combat.playerSpell();
   else if (action === 'run') combat.playerRunAway();
+});
+
+// Clicking a party card only means something while an ally-targeted
+// spell is waiting on a target (see combatUI.js's .targetable cards);
+// otherwise this is a no-op, so no separate "are we in combat" guard
+// is needed beyond checking pendingSpell itself.
+combatEls.partyList.addEventListener('click', (e) => {
+  const card = e.target.closest('[data-party-index]');
+  if (!card || !state.combat || !state.combat.pendingSpell) return;
+  combat.selectSpellTarget(Number(card.dataset.partyIndex));
 });
 
 function refreshCombatUI() {
@@ -180,9 +198,16 @@ bus.on('playerSpellHit', ({ amount }) => {
   refreshCombatUI();
 });
 
-bus.on('playerSpellSelf', (effect) => {
-  if (effect.kind === 'heal') spawnPopup(combatEls.popups, `+${effect.amount}`, 'heal');
-  refreshCombatUI();
+bus.on('spellTargetingStart', () => refreshCombatUI());
+bus.on('spellTargetingCancel', () => refreshCombatUI());
+
+bus.on('playerSpellAlly', ({ amount, kind, targetIndex }) => {
+  refreshCombatUI(); // rebuilds the party list first, so the popup/flash below has a fresh card to target
+  if (kind === 'heal') {
+    const card = combatEls.partyList.querySelector(`[data-party-index="${targetIndex}"]`);
+    if (card) spawnPopup(card, `+${amount}`, 'heal');
+    flashPartyCardHeal(combatEls.partyList, targetIndex);
+  }
 });
 
 bus.on('playerDefend', () => {

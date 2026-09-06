@@ -323,25 +323,34 @@ export function playerRunAway() {
 // pre-placed encounters (dungeonGen.js — "this stretch is dangerous"),
 // checked on arriving at a tile, and a flat per-turn wandering-monster
 // roll (any turn, including turning in place), per the "everything is
-// a turn" hook turnManager.js already anticipated.
+// a turn" hook turnManager.js already anticipated. Both share one cap
+// (state.encounterCount, incremented here) so a level doesn't throw
+// more than MAX_ENCOUNTERS_PER_LEVEL fights at the party regardless of
+// which source they came from; core/gameState.js's startNewLevel()
+// resets the counter back to 0 whenever the player descends.
 
 const WANDERING_CHANCE = 0.05;
 const WANDERING_MONSTERS = ['slime', 'orc', 'skeleton'];
+const MAX_ENCOUNTERS_PER_LEVEL = 10;
 
 export function maybeTriggerTileEncounter(map, x, y) {
+  if (state.encounterCount >= MAX_ENCOUNTERS_PER_LEVEL) return false;
   const idx = map.encounters.findIndex((e) => e.at[0] === x && e.at[1] === y);
   if (idx === -1) return false;
   const enc = map.encounters[idx];
   if (Math.random() > enc.chance) return false;
   map.encounters.splice(idx, 1); // consumed — this tile won't trigger again
+  state.encounterCount += 1;
   startCombat(enc.monsterGroup);
   return true;
 }
 
 export function maybeTriggerWanderingEncounter() {
   if (state.screen !== 'explore') return false;
+  if (state.encounterCount >= MAX_ENCOUNTERS_PER_LEVEL) return false;
   if (Math.random() > WANDERING_CHANCE) return false;
   const id = WANDERING_MONSTERS[Math.floor(Math.random() * WANDERING_MONSTERS.length)];
+  state.encounterCount += 1;
   startCombat(id);
   return true;
 }

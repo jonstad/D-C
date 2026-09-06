@@ -108,6 +108,16 @@
       </div>
     </section>
 
+    <!-- QUEST-COMPLETE CELEBRATION BANNER — deliberately not one of the
+         .screen sections above: a kill-count quest can complete
+         mid-combat just as easily as a reachStairs quest completes
+         during exploration, so this needs to float above whichever
+         screen happens to be showing rather than being scoped to one of
+         them. css/quests.css's position:fixed lifts it above
+         everything; main.js toggles the .show class in response to the
+         'questComplete' bus event. -->
+    <div id="quest-banner" class="quest-banner"></div>
+
   </div>
 
   <script type="module" src="js/main.js"></script>

@@ -19,6 +19,8 @@ export const state = {
   log: [],
   combat: null, // set by combat/combatEngine.js's startCombat(), null outside combat
   quests: [], // set by core/questManager.js's initQuests(), one run's worth of { ...def, progress, status }
+  level: 1, // current dungeon depth — bumped by startNewLevel() below, never reset mid-level
+  encounterCount: 0, // encounters fired on this level so far; combat/combatEngine.js caps this at MAX_ENCOUNTERS_PER_LEVEL and startNewLevel() resets it to 0
 };
 
 export function resetGame() {
@@ -30,6 +32,23 @@ export function resetGame() {
   state.log = [];
   state.combat = null;
   state.quests = [];
+  state.level = 1;
+  state.encounterCount = 0;
+}
+
+// Called by world/movement.js's descendLevel() when the player steps
+// onto a stairsDown tile — swaps in the freshly generated map for the
+// next floor, resets the per-level encounter counter and the
+// discovered set (the old floor's fog-of-war has nothing to do with
+// the new one), and bumps the depth counter. Quests are NOT touched
+// here — they're a per-run thing (like state.party), not a per-level
+// one, same as the comment on QUEST_DATA's reachStairs type already
+// implies ("one visit is enough to complete it outright").
+export function startNewLevel(map) {
+  state.map = map;
+  state.discovered = new Set();
+  state.encounterCount = 0;
+  state.level += 1;
 }
 
 export function addLog(message) {

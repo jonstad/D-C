@@ -3,11 +3,12 @@
 // fails (bumped a wall) and logs that instead, per the exploration
 // turn loop in the plan.
 
-import { state, addLog, markDiscovered } from '../core/gameState.js';
+import { state, addLog, markDiscovered, startNewLevel } from '../core/gameState.js';
 import { tickWorldTurn } from '../core/turnManager.js';
 import { FACING_VECTORS } from './mapModel.js';
 import { bus } from '../core/eventBus.js';
 import { maybeTriggerTileEncounter } from '../combat/combatEngine.js';
+import { loadProceduralLevel } from './levelLoader.js';
 
 function stepInto(dx, dy) {
   const map = state.map;
@@ -55,6 +56,20 @@ function onArrive() {
   bus.emit('playerMoved');
 }
 
+// Generates the next floor down and swaps it in — see
+// core/gameState.js's startNewLevel() for exactly what that resets
+// (the encounter counter and discovered/fog-of-war set) and what it
+// deliberately leaves alone (quests, party). Called the instant the
+// player arrives on a stairsDown tile (see checkTileEvents below), so
+// there's no separate "use stairs" action to wire up yet.
+function descendLevel() {
+  const map = loadProceduralLevel({ width: 12, height: 12, seed: Date.now() & 0xffffffff });
+  startNewLevel(map);
+  markDiscovered(map.playerPos.x, map.playerPos.y);
+  addLog(`You descend to level ${state.level}.`);
+  bus.emit('levelChanged', { level: state.level });
+}
+
 function checkTileEvents() {
   const map = state.map;
   const { x, y } = map.playerPos;
@@ -67,7 +82,11 @@ function checkTileEvents() {
     // (simpler than tracking "have we already told quests about this"
     // here), but that's harmless: a quest that's already complete just
     // ignores it.
-    if (exit.type === 'stairsDown') bus.emit('stairsReached', { x, y });
+    if (exit.type === 'stairsDown') {
+      bus.emit('stairsReached', { x, y });
+      descendLevel();
+      return; // state.map was just replaced — nothing below should touch the old one
+    }
   }
   const items = map.itemsAt(x, y);
   if (items.length) addLog(`There is something here: ${items.map((i) => i.itemId).join(', ')}.`);

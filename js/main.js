@@ -40,6 +40,7 @@ const controlsEl = document.getElementById('controls');
 const btnOpenQuests = document.getElementById('btn-open-quests');
 const btnCloseQuests = document.getElementById('btn-close-quests');
 const questListEl = document.getElementById('quest-list');
+const questBannerEl = document.getElementById('quest-banner');
 
 // --- Combat DOM refs -----------------------------------------------------
 const combatActionsEl = document.getElementById('combat-actions');
@@ -162,6 +163,32 @@ btnOpenQuests.addEventListener('click', () => {
 });
 
 btnCloseQuests.addEventListener('click', () => showScreen('explore'));
+
+// Celebration banner — floats above whichever screen is showing (see
+// index.html's comment on #quest-banner) rather than being scoped to
+// the explore or combat screen specifically, since a kill-count quest
+// can complete mid-fight just as easily as a reachStairs quest
+// completes while exploring.
+const QUEST_BANNER_DURATION = 2800; // ms the banner stays up before fading back out
+let questBannerHideTimer = null;
+
+bus.on('questComplete', ({ quest }) => showQuestBanner(quest));
+
+function showQuestBanner(quest) {
+  clearTimeout(questBannerHideTimer);
+  questBannerEl.innerHTML = `
+    <div class="quest-banner-title">Quest Complete</div>
+    <div class="quest-banner-name">${quest.name}</div>
+  `;
+  // Drop .show and force a reflow before re-adding it — otherwise a
+  // second quest completing while the first banner is still up would
+  // be a no-op (the class never left), so the transition wouldn't
+  // restart and the fresh quest name would just silently swap in.
+  questBannerEl.classList.remove('show');
+  void questBannerEl.offsetWidth;
+  questBannerEl.classList.add('show');
+  questBannerHideTimer = setTimeout(() => questBannerEl.classList.remove('show'), QUEST_BANNER_DURATION);
+}
 
 // --- COMBAT ----------------------------------------------------------------
 combatActionsEl.addEventListener('click', (e) => {
@@ -288,7 +315,9 @@ function renderPartyHud() {
         </div>
       </div>
     `;
-  }).join('') + `<div class="stat-row" style="margin-top:6px; color:var(--text-dim);"><span>Turn</span><span>${state.turnCount}</span></div>`;
+  }).join('')
+    + `<div class="stat-row" style="margin-top:6px; color:var(--text-dim);"><span>Level</span><span>${state.level}</span></div>`
+    + `<div class="stat-row" style="color:var(--text-dim);"><span>Turn</span><span>${state.turnCount}</span></div>`;
 }
 
 // Appended into both the explore screen's log and the combat screen's

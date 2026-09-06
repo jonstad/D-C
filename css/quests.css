@@ -91,3 +91,47 @@
   margin-top: 4px;
   text-align: right;
 }
+
+/* Floating "Quest Complete!" celebration banner (index.html) — a
+   sibling of every #screen-*, not nested inside one, since a
+   kill-count quest can complete mid-combat just as easily as a
+   reachStairs quest completes during exploration. Hidden via
+   opacity/transform rather than [hidden] so main.js's .show toggle has
+   something to transition; pointer-events:none keeps it from ever
+   blocking a click on whatever's underneath. */
+.quest-banner {
+  position: fixed;
+  top: 48px;
+  left: 50%;
+  z-index: 1000;
+  pointer-events: none;
+  background: var(--panel);
+  border: 2px solid var(--ok);
+  border-radius: 10px;
+  padding: 14px 30px;
+  text-align: center;
+  box-shadow: 0 0 24px rgba(90, 200, 120, 0.5);
+  opacity: 0;
+  transform: translate(-50%, -14px) scale(0.92);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.quest-banner.show {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.quest-banner-title {
+  color: var(--ok);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.quest-banner-name {
+  color: var(--accent);
+  font-size: 1.25rem;
+  font-weight: bold;
+  white-space: nowrap;
+}

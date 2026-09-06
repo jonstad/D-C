@@ -44,6 +44,7 @@ const combatEls = {
   enemyHpFill: document.getElementById('combat-enemy-hp-fill'),
   popups: document.getElementById('combat-popups'),
   partyList: document.getElementById('combat-party-list'),
+  partyPopups: document.getElementById('combat-party-popups'),
   turnIndicator: document.getElementById('combat-turn-indicator'),
   actionButtons: Array.from(combatActionsEl.querySelectorAll('button[data-combat-action]')),
 };
@@ -175,6 +176,17 @@ function refreshCombatUI() {
   renderCombat(combatEls, { party: state.party, combat: state.combat });
 }
 
+// Where a hit/heal popup for the given party index should land inside
+// #combat-party-popups (a sibling overlay of #combat-party-list, not a
+// child of it — see css/combat.css's #combat-party-popups comment for
+// why a popup can't just live inside the card it's about). Reads the
+// card's *current* position, so call this after refreshCombatUI() has
+// rebuilt the party list for this event.
+function cardPopupTop(targetIndex) {
+  const card = combatEls.partyList.querySelector(`[data-party-index="${targetIndex}"]`);
+  return card ? card.offsetTop + card.offsetHeight * 0.3 : 0;
+}
+
 bus.on('combatStart', () => {
   combatEls.enemySprite.classList.remove('anim-attack', 'anim-hit', 'anim-defeat');
   showScreen('combat');
@@ -202,10 +214,9 @@ bus.on('spellTargetingStart', () => refreshCombatUI());
 bus.on('spellTargetingCancel', () => refreshCombatUI());
 
 bus.on('playerSpellAlly', ({ amount, kind, targetIndex }) => {
-  refreshCombatUI(); // rebuilds the party list first, so the popup/flash below has a fresh card to target
+  refreshCombatUI(); // rebuilds the party list first, so the card position below is accurate
   if (kind === 'heal') {
-    const card = combatEls.partyList.querySelector(`[data-party-index="${targetIndex}"]`);
-    if (card) spawnPopup(card, `+${amount}`, 'heal');
+    spawnPopup(combatEls.partyPopups, `+${amount}`, 'heal', cardPopupTop(targetIndex));
     flashPartyCardHeal(combatEls.partyList, targetIndex);
   }
 });
@@ -217,8 +228,8 @@ bus.on('playerDefend', () => {
 
 bus.on('enemyAttack', ({ amount, targetIndex }) => {
   playEnemyAttackAnim(combatEls.enemySprite);
-  spawnPopup(combatEls.popups, `-${amount}`, 'damage');
-  refreshCombatUI(); // rebuilds the party list first, so the flash below has a fresh card to target
+  refreshCombatUI(); // rebuilds the party list first, so the card position below is accurate
+  spawnPopup(combatEls.partyPopups, `-${amount}`, 'damage', cardPopupTop(targetIndex));
   flashPartyCardHit(combatEls.partyList, targetIndex);
 });
 

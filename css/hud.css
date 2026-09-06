@@ -21,14 +21,11 @@
    adds .active-turn (whoever's turn it currently is, combat only),
    .downed (hp <= 0, either screen), and .targetable (combat only,
    while an ally-targeted spell like Heal is waiting on a target — see
-   combatEngine.js's pendingSpell) on top of this base. position:relative
-   is what lets an ally-spell's "+N" popup (css/combat.css's
-   .combat-popup, appended straight into the clicked card by
-   main.js's playerSpellAlly handler) place itself against this card
-   rather than the nearest other positioned ancestor. */
+   combatEngine.js's pendingSpell) on top of this base. Damage/heal
+   popups never get appended inside this card (css/combat.css's
+   #combat-party-popups overlay explains why — this element gets
+   rebuilt from scratch too often to hold a transient popup itself). */
 .party-card {
-  position: relative;
-  overflow: visible;
   display: flex;
   gap: 8px;
   align-items: center;

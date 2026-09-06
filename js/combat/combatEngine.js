@@ -25,6 +25,15 @@ import { resolveAbility } from './abilities.js';
 
 const ENEMY_TURN_DELAY = 550; // ms — purely presentational pacing, see scheduleEnemyTurn
 const VICTORY_SCREEN_DELAY = 700; // ms — lets the enemy's defeat animation play before the screen switches back
+// Same idea as ENEMY_TURN_DELAY, but for the *next* rebuild after a hit
+// or heal that targeted a specific party card. combatUI.js's popup
+// (css/combat.css's #combat-party-popups) survives a rebuild fine since
+// it lives in a sibling layer, but the .flash-hit/.flash-heal class
+// main.js adds straight onto the card itself does not — advancing the
+// turn/round right away would call refreshCombatUI() again before the
+// flash has painted even one frame, wiping the freshly-rebuilt card
+// (and its flash class) before anyone sees it.
+const POST_HIT_EFFECT_DELAY = 500;
 
 function rand(min, max) {
   return min + Math.random() * (max - min);
@@ -121,10 +130,15 @@ function enemyTurn() {
     return;
   }
 
-  // Survived — start the next round back at the first living member.
-  combat.actingIndex = firstAliveIndex();
-  setLocked(combat, false);
-  bus.emit('roundStart', {});
+  // Survived — start the next round back at the first living member, a
+  // beat later so the hit flash/popup on whoever just got attacked
+  // actually gets to render first (see POST_HIT_EFFECT_DELAY above).
+  setTimeout(() => {
+    if (state.combat !== combat || combat.over) return; // combat ended/replaced meanwhile
+    combat.actingIndex = firstAliveIndex();
+    setLocked(combat, false);
+    bus.emit('roundStart', {});
+  }, POST_HIT_EFFECT_DELAY);
 }
 
 // Schedules the enemy's turn a beat after whichever party member just
@@ -267,7 +281,13 @@ export function selectSpellTarget(targetIndex) {
     addLog(`${target.name} recovers ${effect.amount} HP.`);
   }
   bus.emit('playerSpellAlly', { actorIndex: combat.actingIndex, targetIndex, ...effect });
-  advanceTurnOrEnemy(); // an ally-targeted spell never ends combat by itself
+  // A beat before advancing — same reason as enemyTurn()'s
+  // POST_HIT_EFFECT_DELAY: gives the heal flash on the target's card a
+  // chance to render before the next turn's rebuild would wipe it.
+  setTimeout(() => {
+    if (state.combat !== combat || combat.over) return; // combat ended/replaced meanwhile
+    advanceTurnOrEnemy(); // an ally-targeted spell never ends combat by itself
+  }, POST_HIT_EFFECT_DELAY);
 }
 
 // Backs out of target-selection mode with no cost — no MP spent, no

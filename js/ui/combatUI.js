@@ -80,12 +80,21 @@ export function renderCombat(els, { party, combat }) {
 }
 
 // A floating bit of combat text (damage/heal/crit/miss) that rises and
-// fades over the enemy stage, then removes itself. kind selects color
-// via the .combat-popup-<kind> rules in css/combat.css.
-export function spawnPopup(popupLayerEl, text, kind) {
+// fades, then removes itself. kind selects color via the
+// .combat-popup-<kind> rules in css/combat.css. Two different layers
+// use this: the enemy stage's #combat-popups (topPx omitted — the
+// default top:30% from the .combat-popup class is already centered on
+// the enemy sprite), and #combat-party-popups for a hit/heal on a
+// specific party member, where topPx pins it against that member's
+// card (that layer spans the whole party list, so a single "top:30%"
+// wouldn't line up with any one card — see css/combat.css's
+// #combat-party-popups comment for why this can't just live inside the
+// card itself).
+export function spawnPopup(popupLayerEl, text, kind, topPx) {
   const el = document.createElement('div');
   el.className = `combat-popup combat-popup-${kind}`;
   el.textContent = text;
+  if (typeof topPx === 'number') el.style.top = `${topPx}px`;
   // Small random horizontal jitter so back-to-back popups (e.g. an
   // attack immediately followed by the enemy's reply) don't stack
   // exactly on top of each other and become unreadable.

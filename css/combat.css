@@ -133,18 +133,40 @@
 .combat-popup-heal { color: var(--ok); }
 .combat-popup-miss { color: var(--text-dim); font-size: 1rem; }
 
-/* Four .party-card rows (shared with the explore HUD — see hud.css)
-   standing in for the old single-character panel. combatUI.js adds
-   .active-turn to whoever's turn it currently is and .downed to anyone
-   at 0 HP. */
-#combat-party-list {
+/* Positioned wrapper for the party column: #combat-party-list holds the
+   four .party-card rows (shared with the explore HUD — see hud.css;
+   combatUI.js adds .active-turn/.downed/.targetable on top of the base)
+   and gets fully rebuilt (innerHTML) on every combat re-render — whose
+   turn it is, hp/mp bars, and so on always need a fresh render. A
+   damage/heal popup spawned *inside* a card would get destroyed by the
+   very next rebuild before ever painting a frame (the several bus
+   events a single action fires — e.g. enemyAttack followed
+   synchronously by combatLocked/roundStart — all resolve before the
+   browser gets to paint anything in between). #combat-party-popups is
+   a sibling, not a child, of #combat-party-list specifically so it's
+   never touched by that innerHTML rebuild: main.js's spawnPopup calls
+   append into this layer instead, positioned against the target card's
+   current offsetTop (read fresh, after the rebuild, so it's still
+   accurate even though the card element itself gets replaced). */
+#combat-party-wrap {
   grid-column: 2;
   grid-row: 1;
   align-self: start;
+  position: relative;
+}
+
+#combat-party-list {
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 6px;
   padding: 10px;
+}
+
+#combat-party-popups {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
 }
 
 #combat-turn-indicator {

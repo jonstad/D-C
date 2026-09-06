@@ -20,11 +20,11 @@
       <button id="btn-start" class="btn-primary">Begin Descent</button>
     </section>
 
-    <!-- CLASS SELECT SCREEN -->
+    <!-- PARTY ROSTER SCREEN -->
     <section id="screen-class-select" class="screen hidden">
-      <h2>Choose Your Adventurer</h2>
+      <h2>Your Party</h2>
       <div id="class-cards" class="class-cards"></div>
-      <button id="btn-confirm-class" class="btn-primary" disabled>Enter the Dungeon</button>
+      <button id="btn-confirm-class" class="btn-primary">Enter the Dungeon</button>
     </section>
 
     <!-- EXPLORE SCREEN -->
@@ -48,7 +48,7 @@
         </div>
 
         <aside id="hud-column">
-          <div id="hud-stats" class="panel"></div>
+          <div id="hud-party" class="panel"></div>
           <div id="hud-minimap" class="panel">
             <canvas id="minimap-canvas" width="180" height="180"></canvas>
           </div>
@@ -77,13 +77,9 @@
           </div>
         </div>
 
-        <div id="combat-player-info" class="panel">
-          <div class="stat-row"><strong id="combat-player-name"></strong></div>
-          <div class="stat-row"><span>HP</span><span id="combat-player-hp-text"></span></div>
-          <div class="bar-track"><div id="combat-player-hp-fill" class="bar-fill hp"></div></div>
-          <div class="stat-row"><span>MP</span><span id="combat-player-mp-text"></span></div>
-          <div class="bar-track"><div id="combat-player-mp-fill" class="bar-fill mp"></div></div>
-        </div>
+        <div id="combat-party-list"></div>
+
+        <div id="combat-turn-indicator"></div>
 
         <div id="combat-actions">
           <button data-combat-action="attack" class="btn-combat">Hit</button>

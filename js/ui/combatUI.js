@@ -1,15 +1,38 @@
-// Renders the combat screen's dynamic bits (bars, buttons, enemy
-// sprite) and the transient effects layered on top (damage/effect
-// popups, enemy movement animations). Mirrors ui/renderer.js's role
-// for the explore screen: main.js wires DOM events and bus listeners
-// and calls these render functions in response; this module never
-// touches the event bus or game state directly, only the DOM elements
-// and plain data it's handed.
+// Renders the combat screen's dynamic bits (the enemy, the party
+// status list, action buttons) and the transient effects layered on
+// top (damage/effect popups, enemy movement animations). Mirrors
+// ui/renderer.js's role for the explore screen: main.js wires DOM
+// events and bus listeners and calls these render functions in
+// response; this module never touches the event bus or game state
+// directly, only the DOM elements and plain data it's handed.
 
-// Full re-render of bars/name/buttons from current state. Cheap enough
-// to call after every combat bus event (same pattern as explore's
-// refreshExploreUI), so it never drifts from what actually happened.
-export function renderCombat(els, { player, combat }) {
+function partyCardHTML(char, index, combat) {
+  const downed = !char.isAlive();
+  // Not "acting" while combat.locked — that window covers both the brief
+  // pause after a player's action and the enemy's own turn, so nobody's
+  // card should read as active until the next turn is actually theirs.
+  const isActing = !downed && !combat.locked && combat.actingIndex === index;
+  const classes = ['party-card'];
+  if (isActing) classes.push('active-turn');
+  if (downed) classes.push('downed');
+  const hpPct = Math.max(0, (char.hp / char.maxHP) * 100);
+  const mpPct = char.maxMP ? Math.max(0, (char.mp / char.maxMP) * 100) : 0;
+  return `
+    <div class="${classes.join(' ')}" data-party-index="${index}">
+      <div class="party-card-portrait" style="background-image:url('${char.classDef.portrait}')"></div>
+      <div class="party-card-info">
+        <div class="party-card-name"><span>${char.name}</span><small>${downed ? 'Down' : `Lv.${char.level}`}</small></div>
+        <div class="bar-track"><div class="bar-fill hp" style="width:${hpPct}%"></div></div>
+        <div class="bar-track"><div class="bar-fill mp" style="width:${mpPct}%"></div></div>
+      </div>
+    </div>
+  `;
+}
+
+// Full re-render of the enemy/party bars/buttons from current state.
+// Cheap enough to call after every combat bus event (same pattern as
+// explore's refreshExploreUI), so it never drifts from what happened.
+export function renderCombat(els, { party, combat }) {
   if (!combat) return;
   const { enemy } = combat;
 
@@ -17,17 +40,16 @@ export function renderCombat(els, { player, combat }) {
   els.enemyName.textContent = enemy.name;
   els.enemyHpFill.style.width = `${Math.max(0, (enemy.hp / enemy.maxHp) * 100)}%`;
 
-  els.playerName.textContent = player.name;
-  els.playerHpText.textContent = `${player.hp} / ${player.maxHP}`;
-  els.playerHpFill.style.width = `${Math.max(0, (player.hp / player.maxHP) * 100)}%`;
-  els.playerMpText.textContent = `${player.mp} / ${player.maxMP}`;
-  els.playerMpFill.style.width = `${Math.max(0, (player.mp / player.maxMP) * 100)}%`;
+  els.partyList.innerHTML = party.map((c, i) => partyCardHTML(c, i, combat)).join('');
 
-  const ability = player.abilities[0];
+  const actor = combat.locked ? null : party[combat.actingIndex];
+  els.turnIndicator.textContent = actor ? `${actor.name}'s turn` : '';
+
+  const ability = actor ? actor.abilities[0] : null;
   const locked = !!combat.locked;
   for (const btn of els.actionButtons) {
     if (btn.dataset.combatAction === 'spell') {
-      btn.disabled = locked || !ability || player.mp < ability.mpCost;
+      btn.disabled = locked || !ability || !actor || actor.mp < ability.mpCost;
       btn.textContent = ability ? `Spell (${ability.name})` : 'Spell';
     } else {
       btn.disabled = locked;
@@ -72,6 +94,10 @@ export function playEnemyDefeatAnim(enemySpriteEl) {
   enemySpriteEl.classList.add('anim-defeat');
 }
 
-export function flashPlayerHit(playerInfoEl) {
-  retrigger(playerInfoEl, 'flash-hit');
+// Flashes whichever party card the enemy just hit — looked up by index
+// since the party list is fully rebuilt every render (see renderCombat)
+// and so has no stable element reference to hold onto between calls.
+export function flashPartyCardHit(partyListEl, index) {
+  const card = partyListEl.querySelector(`[data-party-index="${index}"]`);
+  if (card) retrigger(card, 'flash-hit');
 }

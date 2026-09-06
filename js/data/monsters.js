@@ -3,6 +3,11 @@
 // engine changes needed (see combat/combatEngine.js's only consumer,
 // spawnEnemy()). Stats reuse the same STR/AGI/VIT axes as Character so
 // combat math can treat player and enemy the same way.
+//
+// flavorHit is a bare verb phrase — combatEngine.js's enemyTurn() logs
+// it as `${enemy.name} ${flavorHit} ${target.name} for ${amount}
+// damage`, so it must read correctly with a party member's NAME right
+// after it (not "you" — combat can hit any of four different people).
 
 export const MONSTER_DATA = {
   slime: {
@@ -13,7 +18,7 @@ export const MONSTER_DATA = {
     hp: 14,
     stats: { STR: 4, AGI: 4, VIT: 2 },
     xpReward: 8,
-    flavorHit: 'splatters against you for',
+    flavorHit: 'splatters against',
     flavorDefeat: 'collapses into a puddle',
   },
   skeleton: {
@@ -24,7 +29,7 @@ export const MONSTER_DATA = {
     hp: 20,
     stats: { STR: 7, AGI: 11, VIT: 3 },
     xpReward: 14,
-    flavorHit: 'rattles forward and strikes you for',
+    flavorHit: 'rattles forward and strikes',
     flavorDefeat: 'crumbles to bone fragments',
   },
   orc: {
@@ -35,7 +40,7 @@ export const MONSTER_DATA = {
     hp: 28,
     stats: { STR: 10, AGI: 6, VIT: 6 },
     xpReward: 18,
-    flavorHit: 'clubs you for',
+    flavorHit: 'clubs',
     flavorDefeat: 'falls with a heavy thud',
   },
 };

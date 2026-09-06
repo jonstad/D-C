@@ -103,20 +103,31 @@ html, body {
   border-radius: 8px;
   padding: 16px;
   width: 190px;
-  cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s;
+  text-align: center;
 }
 
-.class-card:hover { transform: translateY(-2px); }
-
-.class-card.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 16px rgba(201, 162, 75, 0.35);
+.class-card-portrait {
+  width: 84px;
+  height: 92px;
+  margin: 0 auto 10px auto;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-color: #14100c;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
 }
 
 .class-card h3 {
   margin: 0 0 6px 0;
   color: var(--accent);
+  font-size: 1rem;
+}
+
+.class-card h3 small {
+  color: var(--text-dim);
+  font-weight: normal;
+  font-size: 0.75em;
 }
 
 .class-card p {

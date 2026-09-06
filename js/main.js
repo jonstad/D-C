@@ -1,11 +1,13 @@
-// Boot + state-machine wiring for phase 1: BOOT -> CLASS_SELECT -> EXPLORE.
-// Combat/inventory/menu states are not implemented yet (phases 4/6) —
-// this file is intentionally the thin "glue" layer; game logic lives
-// in core/world/entities/ui modules so this stays small as those grow.
+// Boot + state-machine wiring: BOOT -> PARTY ROSTER -> EXPLORE, with a
+// COMBAT screen reachable from EXPLORE via random encounters. This file
+// is intentionally the thin "glue" layer; game logic lives in
+// core/world/entities/combat/ui modules so this stays small as those
+// grow.
 
 import { state, addLog, markDiscovered } from './core/gameState.js';
 import { bus } from './core/eventBus.js';
-import { CLASS_LIST } from './data/classes.js';
+import { CLASS_DATA } from './data/classes.js';
+import { DEFAULT_PARTY } from './data/partyPresets.js';
 import { Character } from './entities/Character.js';
 import { loadProceduralLevel } from './world/levelLoader.js';
 import * as movement from './world/movement.js';
@@ -14,7 +16,7 @@ import { renderMinimap } from './ui/minimap.js';
 import * as combat from './combat/combatEngine.js';
 import {
   renderCombat, spawnPopup, playEnemyAttackAnim, playEnemyHitAnim,
-  playEnemyDefeatAnim, flashPlayerHit,
+  playEnemyDefeatAnim, flashPartyCardHit,
 } from './ui/combatUI.js';
 
 // --- DOM refs ----------------------------------------------------------
@@ -28,7 +30,7 @@ const btnStart = document.getElementById('btn-start');
 const classCardsEl = document.getElementById('class-cards');
 const btnConfirmClass = document.getElementById('btn-confirm-class');
 const viewportEl = document.getElementById('viewport');
-const hudStatsEl = document.getElementById('hud-stats');
+const hudPartyEl = document.getElementById('hud-party');
 const minimapCanvas = document.getElementById('minimap-canvas');
 const logListEl = document.getElementById('log-list');
 const controlsEl = document.getElementById('controls');
@@ -41,17 +43,11 @@ const combatEls = {
   enemyName: document.getElementById('combat-enemy-name'),
   enemyHpFill: document.getElementById('combat-enemy-hp-fill'),
   popups: document.getElementById('combat-popups'),
-  playerInfo: document.getElementById('combat-player-info'),
-  playerName: document.getElementById('combat-player-name'),
-  playerHpText: document.getElementById('combat-player-hp-text'),
-  playerHpFill: document.getElementById('combat-player-hp-fill'),
-  playerMpText: document.getElementById('combat-player-mp-text'),
-  playerMpFill: document.getElementById('combat-player-mp-fill'),
+  partyList: document.getElementById('combat-party-list'),
+  turnIndicator: document.getElementById('combat-turn-indicator'),
   actionButtons: Array.from(combatActionsEl.querySelectorAll('button[data-combat-action]')),
 };
 const combatLogListEl = document.getElementById('combat-log-list');
-
-let selectedClassId = null;
 
 // --- Screen transitions --------------------------------------------------
 function showScreen(name) {
@@ -62,19 +58,23 @@ function showScreen(name) {
 
 // --- BOOT ----------------------------------------------------------------
 btnStart.addEventListener('click', () => {
-  buildClassCards();
+  buildPartyRosterCards();
   showScreen('classSelect');
 });
 
-// --- CLASS SELECT ----------------------------------------------------------
-function buildClassCards() {
+// --- PARTY ROSTER ----------------------------------------------------------
+// Phase 1 doesn't offer party-building UI — DEFAULT_PARTY (one of each
+// class) is fixed. This screen just previews who you're taking down,
+// reusing the same card layout the old single-class picker used.
+function buildPartyRosterCards() {
   classCardsEl.innerHTML = '';
-  for (const cls of CLASS_LIST) {
+  for (const preset of DEFAULT_PARTY) {
+    const cls = CLASS_DATA[preset.classId];
     const card = document.createElement('div');
     card.className = 'class-card';
-    card.dataset.classId = cls.id;
     card.innerHTML = `
-      <h3>${cls.name}</h3>
+      <div class="class-card-portrait" style="background-image:url('${cls.portrait}')"></div>
+      <h3>${preset.name} <small>the ${cls.name}</small></h3>
       <p>${cls.description}</p>
       <div class="stat-line"><span>HP</span><span>${cls.startingHP}</span></div>
       <div class="stat-line"><span>MP</span><span>${cls.startingMP}</span></div>
@@ -83,20 +83,12 @@ function buildClassCards() {
       <div class="stat-line"><span>INT</span><span>${cls.baseStats.INT}</span></div>
       <div class="stat-line"><span>WIS</span><span>${cls.baseStats.WIS}</span></div>
     `;
-    card.addEventListener('click', () => {
-      selectedClassId = cls.id;
-      document.querySelectorAll('.class-card').forEach((c) => c.classList.remove('selected'));
-      card.classList.add('selected');
-      btnConfirmClass.disabled = false;
-    });
     classCardsEl.appendChild(card);
   }
 }
 
 btnConfirmClass.addEventListener('click', () => {
-  if (!selectedClassId) return;
-  const cls = CLASS_LIST.find((c) => c.id === selectedClassId);
-  state.player = new Character({ name: cls.name, classId: cls.id });
+  state.party = DEFAULT_PARTY.map((preset) => new Character({ name: preset.name, classId: preset.classId }));
   startExploring();
 });
 
@@ -104,7 +96,11 @@ btnConfirmClass.addEventListener('click', () => {
 function startExploring() {
   state.map = loadProceduralLevel({ width: 12, height: 12, seed: Date.now() & 0xffffffff });
   markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
-  addLog(`${state.player.name} the ${state.player.classDef.name} descends into the dungeon.`);
+  const names = state.party.map((c) => c.name);
+  const rosterLine = names.length > 1
+    ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+    : names[0];
+  addLog(`${rosterLine} descend into the dungeon.`);
   showScreen('explore');
   refreshExploreUI();
 }
@@ -158,7 +154,7 @@ combatActionsEl.addEventListener('click', (e) => {
 });
 
 function refreshCombatUI() {
-  renderCombat(combatEls, { player: state.player, combat: state.combat });
+  renderCombat(combatEls, { party: state.party, combat: state.combat });
 }
 
 bus.on('combatStart', () => {
@@ -194,11 +190,11 @@ bus.on('playerDefend', () => {
   refreshCombatUI();
 });
 
-bus.on('enemyAttack', ({ amount }) => {
+bus.on('enemyAttack', ({ amount, targetIndex }) => {
   playEnemyAttackAnim(combatEls.enemySprite);
-  flashPlayerHit(combatEls.playerInfo);
   spawnPopup(combatEls.popups, `-${amount}`, 'damage');
-  refreshCombatUI();
+  refreshCombatUI(); // rebuilds the party list first, so the flash below has a fresh card to target
+  flashPartyCardHit(combatEls.partyList, targetIndex);
 });
 
 bus.on('playerRunAttempt', ({ success }) => {
@@ -212,30 +208,31 @@ bus.on('combatVictory', () => {
 });
 
 bus.on('combatLocked', () => refreshCombatUI());
+bus.on('turnAdvance', () => refreshCombatUI());
+bus.on('roundStart', () => refreshCombatUI());
 
 function refreshExploreUI() {
   renderScene(viewportEl, state.map);
   renderMinimap(minimapCanvas, state.map, state.discovered);
-  renderHudStats();
+  renderPartyHud();
 }
 
-function renderHudStats() {
-  const p = state.player;
-  const stats = p.getDerivedStats();
-  hudStatsEl.innerHTML = `
-    <h2>${p.name} <small style="color:var(--text-dim); font-size:0.7em;">Lv.${p.level} ${p.classDef.name}</small></h2>
-    <div class="stat-row"><span>HP</span><span>${p.hp} / ${p.maxHP}</span></div>
-    <div class="bar-track"><div class="bar-fill hp" style="width:${(p.hp / p.maxHP) * 100}%"></div></div>
-    <div class="stat-row"><span>MP</span><span>${p.mp} / ${p.maxMP}</span></div>
-    <div class="bar-track"><div class="bar-fill mp" style="width:${(p.mp / p.maxMP) * 100}%"></div></div>
-    <div class="stat-row"><span>STR</span><span>${stats.STR}</span></div>
-    <div class="stat-row"><span>AGI</span><span>${stats.AGI}</span></div>
-    <div class="stat-row"><span>VIT</span><span>${stats.VIT}</span></div>
-    <div class="stat-row"><span>INT</span><span>${stats.INT}</span></div>
-    <div class="stat-row"><span>WIS</span><span>${stats.WIS}</span></div>
-    <div class="stat-row"><span>LUK</span><span>${stats.LUK}</span></div>
-    <div class="stat-row" style="margin-top:6px; color:var(--text-dim);"><span>Turn</span><span>${state.turnCount}</span></div>
-  `;
+function renderPartyHud() {
+  hudPartyEl.innerHTML = state.party.map((c) => {
+    const downed = !c.isAlive();
+    const hpPct = Math.max(0, (c.hp / c.maxHP) * 100);
+    const mpPct = c.maxMP ? Math.max(0, (c.mp / c.maxMP) * 100) : 0;
+    return `
+      <div class="party-card${downed ? ' downed' : ''}">
+        <div class="party-card-portrait" style="background-image:url('${c.classDef.portrait}')"></div>
+        <div class="party-card-info">
+          <div class="party-card-name"><span>${c.name}</span><small>${downed ? 'Down' : `Lv.${c.level}`}</small></div>
+          <div class="bar-track"><div class="bar-fill hp" style="width:${hpPct}%"></div></div>
+          <div class="bar-track"><div class="bar-fill mp" style="width:${mpPct}%"></div></div>
+        </div>
+      </div>
+    `;
+  }).join('') + `<div class="stat-row" style="margin-top:6px; color:var(--text-dim);"><span>Turn</span><span>${state.turnCount}</span></div>`;
 }
 
 // Appended into both the explore screen's log and the combat screen's

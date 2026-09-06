@@ -14,10 +14,62 @@
   flex-shrink: 0;
 }
 
-#hud-stats h2 {
-  margin: 0 0 8px 0;
-  color: var(--accent);
-  font-size: 1.1rem;
+/* One party member's compact status card — reused as-is by the explore
+   HUD (#hud-party) and the combat screen (#combat-party-list), which is
+   why it lives here alongside the shared .stat-row/.bar-track/.bar-fill
+   rules rather than in hud.css-vs-combat.css separately. combatUI.js
+   adds .active-turn (whoever's turn it currently is, combat only) and
+   .downed (hp <= 0, either screen) on top of this base. */
+.party-card {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+
+.party-card + .party-card { margin-top: 6px; }
+
+.party-card-portrait {
+  width: 42px;
+  height: 46px;
+  flex-shrink: 0;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-color: #14100c;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+}
+
+.party-card-info { flex: 1; min-width: 0; }
+
+.party-card-name {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.party-card-name small { color: var(--text-dim); font-weight: normal; }
+
+.party-card .bar-track { height: 6px; margin: 3px 0; }
+
+.party-card.active-turn {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(201, 162, 75, 0.35);
+}
+
+.party-card.downed { opacity: 0.45; }
+.party-card.downed .party-card-portrait { filter: grayscale(1); }
+
+.party-card.flash-hit { animation: party-card-hit-flash 0.4s ease-out; }
+
+@keyframes party-card-hit-flash {
+  0%   { box-shadow: 0 0 0 rgba(217, 76, 76, 0); border-color: var(--panel-border); }
+  30%  { box-shadow: 0 0 14px rgba(217, 76, 76, 0.7); border-color: var(--danger); }
+  100% { box-shadow: 0 0 0 rgba(217, 76, 76, 0); border-color: var(--panel-border); }
 }
 
 .stat-row {

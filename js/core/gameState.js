@@ -1,9 +1,10 @@
 // Central game state. This is the single object that would get
 // serialized for save/load — everything meaningful about "where the
-// player is in their playthrough" lives here, not scattered across
-// modules. Phase 1 keeps this intentionally small; combat/inventory
-// phases will attach `state.player.inventory`, `state.combat`, etc.
-// to the same object without changing this shape's contract.
+// party is in their playthrough" lives here, not scattered across
+// modules. `party` is a fixed-order array of Character instances (see
+// js/data/partyPresets.js for the starting four) — turn order in
+// combat/combatEngine.js is simply array order, skipping anyone with
+// hp <= 0.
 
 import { bus } from './eventBus.js';
 
@@ -11,7 +12,7 @@ const STORAGE_KEY = 'dc-save-v1';
 
 export const state = {
   screen: 'boot', // 'boot' | 'classSelect' | 'explore' | 'combat'
-  player: null,     // Character instance, set on class select
+  party: [],         // Character instances, set on "Enter the Dungeon"
   map: null,         // current MapModel
   turnCount: 0,
   discovered: new Set(), // "x,y" keys of tiles the player has seen
@@ -21,7 +22,7 @@ export const state = {
 
 export function resetGame() {
   state.screen = 'boot';
-  state.player = null;
+  state.party = [];
   state.map = null;
   state.turnCount = 0;
   state.discovered = new Set();
@@ -49,14 +50,14 @@ export function advanceTurn() {
 }
 
 // --- Save / load -----------------------------------------------------
-// Kept minimal for phase 1 (player + map id + position + turn count).
+// Kept minimal for phase 1 (party + map id + position + turn count).
 // As inventory/combat land, extend serialize()/deserialize() rather
 // than reworking callers — they only ever touch `state`.
 
 export function saveGame() {
-  if (!state.player || !state.map) return false;
+  if (!state.party.length || !state.map) return false;
   const payload = {
-    player: state.player.serialize(),
+    party: state.party.map((c) => c.serialize()),
     mapId: state.map.id,
     playerPos: { ...state.map.playerPos },
     turnCount: state.turnCount,

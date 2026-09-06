@@ -16,7 +16,7 @@ import { maybeTriggerWanderingEncounter } from '../combat/combatEngine.js';
 export function tickWorldTurn() {
   advanceTurn();
   // Future hooks, in order, once those systems exist:
-  //   1. statusEffects.tickAll(state.player)
+  //   1. statusEffects.tickAll(state.party)
   //   2. regen (HP/MP trickle if resting)
   maybeTriggerWanderingEncounter();
   bus.emit('worldTurnTick');

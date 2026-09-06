@@ -1,11 +1,14 @@
 // Turn-based combat, triggered by a random encounter (see
 // world/movement.js's checkTileEvents() and core/turnManager.js's
-// tickWorldTurn()). The player acts first each round — attack, defend,
-// spell, or run — then, unless that action already ended the fight,
-// the enemy acts after a short delay (see scheduleEnemyTurn) so the
-// UI has time to show one action before the next. Everything the UI
-// needs to know is emitted on the shared bus (core/eventBus.js);
-// js/ui/combatUI.js never reaches into this module's internals.
+// tickWorldTurn()). Round structure: every LIVING party member (array
+// order, state.party) gets one action — attack, defend, spell, or run
+// — then, once the last one has acted, the enemy attacks a single
+// randomly-chosen living party member and a new round begins. A downed
+// member (hp <= 0) is skipped both when picking the next actor and
+// when the enemy picks its target; if that leaves no one standing,
+// it's a party wipe. Everything the UI needs to know is emitted on the
+// shared bus (core/eventBus.js); js/ui/combatUI.js never reaches into
+// this module's internals.
 
 import { state, addLog } from '../core/gameState.js';
 import { bus } from '../core/eventBus.js';
@@ -13,6 +16,7 @@ import { MONSTER_DATA } from '../data/monsters.js';
 import { resolveAbility } from './abilities.js';
 
 const ENEMY_TURN_DELAY = 550; // ms — purely presentational pacing, see scheduleEnemyTurn
+const VICTORY_SCREEN_DELAY = 700; // ms — lets the enemy's defeat animation play before the screen switches back
 
 function rand(min, max) {
   return min + Math.random() * (max - min);
@@ -26,9 +30,42 @@ function spawnEnemy(monsterId) {
   return { ...def, hp: def.hp, maxHp: def.hp, stats: { ...def.stats } };
 }
 
+// --- Turn-order helpers ---------------------------------------------------
+
+function aliveIndices() {
+  const out = [];
+  for (let i = 0; i < state.party.length; i++) if (state.party[i].isAlive()) out.push(i);
+  return out;
+}
+
+function firstAliveIndex() {
+  const alive = aliveIndices();
+  return alive.length ? alive[0] : null;
+}
+
+function nextAliveAfter(idx) {
+  const alive = aliveIndices().filter((i) => i > idx);
+  return alive.length ? alive[0] : null;
+}
+
+function actingChar() {
+  return state.party[state.combat.actingIndex];
+}
+
+function setLocked(combat, locked) {
+  combat.locked = locked;
+  bus.emit('combatLocked', locked);
+}
+
+function applyDamageToEnemy(amount) {
+  state.combat.enemy.hp = Math.max(0, state.combat.enemy.hp - amount);
+}
+
 export function startCombat(monsterId) {
+  const first = firstAliveIndex();
+  if (first === null) return null; // safety: nobody able to fight (shouldn't happen)
   const enemy = spawnEnemy(monsterId);
-  state.combat = { enemy, playerDefending: false, locked: false, over: false };
+  state.combat = { enemy, actingIndex: first, defendingIndices: new Set(), locked: false, over: false };
   state.screen = 'combat';
   addLog(`A ${enemy.name} blocks your way!`);
   bus.emit('combatStart', { enemy });
@@ -43,50 +80,46 @@ function endCombat(result) {
   state.combat = null;
 }
 
-function setLocked(combat, locked) {
-  combat.locked = locked;
-  bus.emit('combatLocked', locked);
-}
-
-function applyDamageToEnemy(amount) {
-  state.combat.enemy.hp = Math.max(0, state.combat.enemy.hp - amount);
-}
-
-function applyDamageToPlayer(amount) {
-  state.player.hp = Math.max(0, state.player.hp - amount);
-}
-
 // The enemy's own turn: always resolves synchronously once called (the
 // delay, when there is one, happens beforehand in scheduleEnemyTurn).
+// Picks one random living party member as its target.
 function enemyTurn() {
   const combat = state.combat;
   const { enemy } = combat;
-  bus.emit('enemyActing', { enemy });
+  const alive = aliveIndices();
+  if (!alive.length) return; // safety — shouldn't be reachable
 
-  const stats = state.player.getDerivedStats();
+  const targetIdx = alive[Math.floor(Math.random() * alive.length)];
+  const target = state.party[targetIdx];
+  bus.emit('enemyActing', { enemy, targetIndex: targetIdx });
+
+  const stats = target.getDerivedStats();
   let amount = Math.max(1, Math.round(enemy.stats.STR * rand(0.8, 1.2) - stats.VIT * 0.5));
-  if (combat.playerDefending) amount = Math.round(amount * 0.5);
-  combat.playerDefending = false;
+  if (combat.defendingIndices.has(targetIdx)) amount = Math.round(amount * 0.5);
+  combat.defendingIndices.clear(); // defending only guards against this one incoming attack
 
-  applyDamageToPlayer(amount);
-  addLog(`The ${enemy.name} ${enemy.flavorHit} ${amount} damage.`);
-  bus.emit('enemyAttack', { enemy, amount });
+  target.hp = Math.max(0, target.hp - amount);
+  addLog(`The ${enemy.name} ${enemy.flavorHit} ${target.name} for ${amount} damage.`);
+  bus.emit('enemyAttack', { enemy, amount, targetIndex: targetIdx });
 
-  if (state.player.hp <= 0) {
-    addLog(`${state.player.name} has fallen! You wake up back near the entrance, battered but alive.`);
-    state.player.hp = 1;
+  if (!aliveIndices().length) {
+    addLog('Your party has fallen! You wake up back near the entrance, battered but alive.');
+    for (const c of state.party) c.hp = Math.max(c.hp, 1); // revive everyone to at least 1 HP
     bus.emit('combatDefeat', { enemy });
     endCombat('defeat');
     return;
   }
+
+  // Survived — start the next round back at the first living member.
+  combat.actingIndex = firstAliveIndex();
   setLocked(combat, false);
+  bus.emit('roundStart', {});
 }
 
-// Schedules the enemy's turn a beat after the player's, purely so the
-// player's own action (and its popup/animation) is visible on screen
-// before the enemy's reply lands — the actual game state (damage,
-// victory/defeat) is already fully resolved by the time this fires;
-// only the *presentation* of the enemy's turn is delayed.
+// Schedules the enemy's turn a beat after whichever party member just
+// acted, purely so that action's own popup/animation is visible before
+// the enemy's reply lands — the actual game state is already fully
+// resolved by the time this fires; only the *presentation* is delayed.
 function scheduleEnemyTurn() {
   const combat = state.combat;
   setLocked(combat, true);
@@ -96,81 +129,104 @@ function scheduleEnemyTurn() {
   }, ENEMY_TURN_DELAY);
 }
 
-const VICTORY_SCREEN_DELAY = 700; // ms — lets the enemy's defeat animation play before the screen switches back
+// Called after any player action — advances to the next living party
+// member's turn, or, if the current actor was the last one standing
+// this round, hands off to the enemy.
+function advanceTurnOrEnemy() {
+  const combat = state.combat;
+  const next = nextAliveAfter(combat.actingIndex);
+  if (next !== null) {
+    combat.actingIndex = next;
+    setLocked(combat, false);
+    bus.emit('turnAdvance', { actorIndex: next });
+    return;
+  }
+  scheduleEnemyTurn();
+}
 
-// Called after any player action that could have killed the enemy
-// (attack, spell) — checks for victory before handing off to the
-// enemy's turn.
+// Called after an attack/spell that could have killed the enemy —
+// checks for victory before advancing the turn.
 function afterPlayerOffense() {
   const combat = state.combat;
   if (combat.enemy.hp <= 0) {
     const { enemy } = combat;
     addLog(`The ${enemy.name} ${enemy.flavorDefeat}!`);
-    const leveledUp = state.player.gainXP(enemy.xpReward);
-    addLog(`You gain ${enemy.xpReward} XP.${leveledUp ? ` ${state.player.name} reaches level ${state.player.level}!` : ''}`);
+    const leveledUp = [];
+    for (const c of state.party) {
+      if (!c.isAlive()) continue;
+      if (c.gainXP(enemy.xpReward)) leveledUp.push(`${c.name} (Lv.${c.level})`);
+    }
+    addLog(`Your party gains ${enemy.xpReward} XP each.${leveledUp.length ? ` ${leveledUp.join(', ')} leveled up!` : ''}`);
+    // Anyone downed during this fight gets back on their feet (1 HP) now
+    // that it's over — otherwise a downed member has no way to recover
+    // at all yet (no rest/revive mechanic exists this early), which
+    // would permanently soft-lock them out of the party.
+    for (const c of state.party) if (!c.isAlive()) c.hp = 1;
     bus.emit('combatVictory', { enemy });
     setTimeout(() => {
       if (state.combat === combat) endCombat('victory');
     }, VICTORY_SCREEN_DELAY);
     return;
   }
-  scheduleEnemyTurn();
+  advanceTurnOrEnemy();
 }
 
 export function playerAttack() {
   const combat = state.combat;
   if (!combat || combat.over || combat.locked) return;
+  const char = actingChar();
   setLocked(combat, true);
-  const stats = state.player.getDerivedStats();
+  const stats = char.getDerivedStats();
   const { enemy } = combat;
   const critChance = Math.min(0.35, stats.LUK / 80);
   const isCrit = Math.random() < critChance;
   let amount = Math.max(1, Math.round(stats.STR * rand(0.85, 1.15) - enemy.stats.VIT * 0.5));
   if (isCrit) amount = Math.round(amount * 1.6);
   applyDamageToEnemy(amount);
-  addLog(`${state.player.name} hits the ${enemy.name} for ${amount} damage${isCrit ? ' (critical!)' : ''}.`);
-  bus.emit('playerAttack', { enemy, amount, isCrit });
+  addLog(`${char.name} hits the ${enemy.name} for ${amount} damage${isCrit ? ' (critical!)' : ''}.`);
+  bus.emit('playerAttack', { actorIndex: combat.actingIndex, enemy, amount, isCrit });
   afterPlayerOffense();
 }
 
 export function playerDefend() {
   const combat = state.combat;
   if (!combat || combat.over || combat.locked) return;
+  const char = actingChar();
   setLocked(combat, true);
-  combat.playerDefending = true;
-  addLog(`${state.player.name} braces for the next attack.`);
-  bus.emit('playerDefend', {});
-  scheduleEnemyTurn();
+  combat.defendingIndices.add(combat.actingIndex);
+  addLog(`${char.name} braces for the next attack.`);
+  bus.emit('playerDefend', { actorIndex: combat.actingIndex });
+  advanceTurnOrEnemy();
 }
 
 export function playerSpell() {
   const combat = state.combat;
   if (!combat || combat.over || combat.locked) return;
-  const player = state.player;
-  const ability = player.abilities[0];
+  const char = actingChar();
+  const ability = char.abilities[0];
   if (!ability) {
-    addLog(`${player.name} has no spell to cast yet.`);
+    addLog(`${char.name} has no spell to cast yet.`);
     return;
   }
-  if (player.mp < ability.mpCost) {
-    addLog(`Not enough MP to cast ${ability.name}.`);
+  if (char.mp < ability.mpCost) {
+    addLog(`Not enough MP for ${char.name} to cast ${ability.name}.`);
     return;
   }
   setLocked(combat, true);
-  player.mp -= ability.mpCost;
-  const effect = resolveAbility(ability.id, player, combat.enemy);
+  char.mp -= ability.mpCost;
+  const effect = resolveAbility(ability.id, char, combat.enemy);
   addLog(effect.message);
   if (effect.targetsSelf) {
     if (effect.kind === 'heal') {
-      player.hp = Math.min(player.maxHP, player.hp + effect.amount);
-      addLog(`${player.name} recovers ${effect.amount} HP.`);
+      char.hp = Math.min(char.maxHP, char.hp + effect.amount);
+      addLog(`${char.name} recovers ${effect.amount} HP.`);
     }
-    bus.emit('playerSpellSelf', effect);
-    scheduleEnemyTurn(); // a self-targeted spell never ends combat by itself
+    bus.emit('playerSpellSelf', { actorIndex: combat.actingIndex, ...effect });
+    advanceTurnOrEnemy(); // a self-targeted spell never ends combat by itself
   } else {
     applyDamageToEnemy(effect.amount);
     addLog(`The ${combat.enemy.name} takes ${effect.amount} damage.`);
-    bus.emit('playerSpellHit', { enemy: combat.enemy, ...effect });
+    bus.emit('playerSpellHit', { actorIndex: combat.actingIndex, enemy: combat.enemy, ...effect });
     afterPlayerOffense();
   }
 }
@@ -178,18 +234,19 @@ export function playerSpell() {
 export function playerRunAway() {
   const combat = state.combat;
   if (!combat || combat.over || combat.locked) return;
+  const char = actingChar();
   setLocked(combat, true);
-  const stats = state.player.getDerivedStats();
+  const stats = char.getDerivedStats();
   const chance = Math.min(0.9, Math.max(0.1, 0.5 + (stats.AGI - combat.enemy.stats.AGI) * 0.03));
   const success = Math.random() < chance;
-  bus.emit('playerRunAttempt', { success });
+  bus.emit('playerRunAttempt', { actorIndex: combat.actingIndex, success });
   if (success) {
-    addLog(`${state.player.name} flees from the ${combat.enemy.name}.`);
+    addLog(`${char.name} leads the party in a retreat from the ${combat.enemy.name}.`);
     endCombat('fled');
     return;
   }
-  addLog(`${state.player.name} couldn't get away!`);
-  scheduleEnemyTurn();
+  addLog(`${char.name} couldn't get away!`);
+  advanceTurnOrEnemy();
 }
 
 // --- Encounter triggers --------------------------------------------------

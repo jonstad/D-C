@@ -6,6 +6,7 @@
 
 import { state, addLog, markDiscovered } from './core/gameState.js';
 import { bus } from './core/eventBus.js';
+import { initQuests } from './core/questManager.js';
 import { CLASS_DATA } from './data/classes.js';
 import { DEFAULT_PARTY } from './data/partyPresets.js';
 import { Character } from './entities/Character.js';
@@ -13,6 +14,7 @@ import { loadProceduralLevel } from './world/levelLoader.js';
 import * as movement from './world/movement.js';
 import { renderScene } from './ui/renderer.js';
 import { renderMinimap } from './ui/minimap.js';
+import { renderQuestList } from './ui/questUI.js';
 import * as combat from './combat/combatEngine.js';
 import {
   renderCombat, spawnPopup, playEnemyAttackAnim, playEnemyHitAnim,
@@ -25,6 +27,7 @@ const screens = {
   classSelect: document.getElementById('screen-class-select'),
   explore: document.getElementById('screen-explore'),
   combat: document.getElementById('screen-combat'),
+  quests: document.getElementById('screen-quests'),
 };
 const btnStart = document.getElementById('btn-start');
 const classCardsEl = document.getElementById('class-cards');
@@ -34,6 +37,9 @@ const hudPartyEl = document.getElementById('hud-party');
 const minimapCanvas = document.getElementById('minimap-canvas');
 const logListEl = document.getElementById('log-list');
 const controlsEl = document.getElementById('controls');
+const btnOpenQuests = document.getElementById('btn-open-quests');
+const btnCloseQuests = document.getElementById('btn-close-quests');
+const questListEl = document.getElementById('quest-list');
 
 // --- Combat DOM refs -----------------------------------------------------
 const combatActionsEl = document.getElementById('combat-actions');
@@ -96,6 +102,7 @@ btnConfirmClass.addEventListener('click', () => {
 // --- EXPLORE ----------------------------------------------------------------
 function startExploring() {
   state.map = loadProceduralLevel({ width: 12, height: 12, seed: Date.now() & 0xffffffff });
+  initQuests();
   markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
   const names = state.party.map((c) => c.name);
   const rosterLine = names.length > 1
@@ -142,6 +149,19 @@ window.addEventListener('keydown', (e) => {
 bus.on('playerMoved', refreshExploreUI);
 bus.on('playerTurned', refreshExploreUI);
 bus.on('log', appendLogLine);
+
+// --- QUESTS ----------------------------------------------------------------
+// A pure navigation screen — opening/closing it doesn't tick a turn or
+// touch game state, it just shows the latest state.quests (re-rendered
+// fresh on open, since nothing can change it while it's the one showing:
+// #controls lives under #screen-explore, hidden along with everything
+// else while this screen is up, same as combat's own action screen).
+btnOpenQuests.addEventListener('click', () => {
+  renderQuestList(questListEl, state.quests);
+  showScreen('quests');
+});
+
+btnCloseQuests.addEventListener('click', () => showScreen('explore'));
 
 // --- COMBAT ----------------------------------------------------------------
 combatActionsEl.addEventListener('click', (e) => {

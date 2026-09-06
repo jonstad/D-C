@@ -1,0 +1,93 @@
+/* The quest log's own screen — a simple scrollable stack of quest
+   cards, in the same "screen" shape (title, content, one primary
+   button) as the boot/party-roster screens. .bar-track/.bar-fill are
+   the shared bar rules from hud.css, reused as-is with a new
+   .bar-fill.quest color modifier. */
+
+#screen-quests h2 {
+  color: var(--accent);
+  margin: 0 0 24px 0;
+}
+
+.quest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(560px, 90vw);
+  max-height: 60vh;
+  overflow-y: auto;
+  margin-bottom: 32px;
+  padding-right: 4px; /* keeps card content clear of the scrollbar */
+}
+
+.quest-empty {
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.quest-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 16px 18px;
+}
+
+/* A completed quest gets the same "ok" green used elsewhere (heal
+   popups/flashes in combat) — one consistent "good outcome" color
+   across the whole game rather than a quest-specific one. */
+.quest-card.complete {
+  border-color: var(--ok);
+}
+
+.quest-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.quest-card-name {
+  color: var(--accent);
+  font-size: 1.05rem;
+}
+
+.quest-card.complete .quest-card-name {
+  color: var(--ok);
+}
+
+.quest-card-status {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.quest-card.complete .quest-card-status {
+  color: var(--ok);
+}
+
+.quest-card-desc {
+  color: var(--text-dim);
+  font-size: 0.88rem;
+  margin: 0 0 10px 0;
+}
+
+.quest-card .bar-track {
+  height: 8px;
+  margin: 0;
+}
+
+.bar-fill.quest {
+  background: var(--accent);
+}
+
+.quest-card.complete .bar-fill.quest {
+  background: var(--ok);
+}
+
+.quest-card-progress-text {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+  text-align: right;
+}

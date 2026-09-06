@@ -60,7 +60,15 @@ function checkTileEvents() {
   const { x, y } = map.playerPos;
   if (maybeTriggerTileEncounter(map, x, y)) return;
   const exit = map.exitAt(x, y);
-  if (exit) addLog(`You see ${exit.type === 'stairsDown' ? 'stairs leading down' : 'an exit'} here.`);
+  if (exit) {
+    addLog(`You see ${exit.type === 'stairsDown' ? 'stairs leading down' : 'an exit'} here.`);
+    // core/questManager.js listens for this to complete any active
+    // 'reachStairs' quest — emitted every time you're on the tile
+    // (simpler than tracking "have we already told quests about this"
+    // here), but that's harmless: a quest that's already complete just
+    // ignores it.
+    if (exit.type === 'stairsDown') bus.emit('stairsReached', { x, y });
+  }
   const items = map.itemsAt(x, y);
   if (items.length) addLog(`There is something here: ${items.map((i) => i.itemId).join(', ')}.`);
 }

@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="css/view.css">
 <link rel="stylesheet" href="css/hud.css">
 <link rel="stylesheet" href="css/combat.css">
+<link rel="stylesheet" href="css/quests.css">
 </head>
 <body>
 
@@ -49,6 +50,7 @@
 
         <aside id="hud-column">
           <div id="hud-party" class="panel"></div>
+          <button id="btn-open-quests" class="btn-hud-action">Quests</button>
           <div id="hud-minimap" class="panel">
             <canvas id="minimap-canvas" width="180" height="180"></canvas>
           </div>
@@ -59,6 +61,13 @@
         </aside>
 
       </div>
+    </section>
+
+    <!-- QUESTS SCREEN -->
+    <section id="screen-quests" class="screen hidden">
+      <h2>Quests</h2>
+      <div id="quest-list" class="quest-list"></div>
+      <button id="btn-close-quests" class="btn-primary">Back to the Dungeon</button>
     </section>
 
     <!-- COMBAT SCREEN -->

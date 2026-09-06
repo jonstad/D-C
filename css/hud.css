@@ -14,6 +14,27 @@
   flex-shrink: 0;
 }
 
+/* Opens the #screen-quests page (see css/quests.css) without spending a
+   turn — same full-width, sidebar-matching treatment as the panels
+   around it, but styled as a button since it's the one clickable thing
+   in this column. */
+.btn-hud-action {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-hud-action:hover {
+  background: var(--stone-mid);
+  border-color: var(--accent-dim);
+}
+
 /* One party member's compact status card — reused as-is by the explore
    HUD (#hud-party) and the combat screen (#combat-party-list), which is
    why it lives here alongside the shared .stat-row/.bar-track/.bar-fill

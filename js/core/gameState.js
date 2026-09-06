@@ -18,6 +18,7 @@ export const state = {
   discovered: new Set(), // "x,y" keys of tiles the player has seen
   log: [],
   combat: null, // set by combat/combatEngine.js's startCombat(), null outside combat
+  quests: [], // set by core/questManager.js's initQuests(), one run's worth of { ...def, progress, status }
 };
 
 export function resetGame() {
@@ -28,6 +29,7 @@ export function resetGame() {
   state.discovered = new Set();
   state.log = [];
   state.combat = null;
+  state.quests = [];
 }
 
 export function addLog(message) {

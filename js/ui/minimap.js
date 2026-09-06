@@ -1,7 +1,21 @@
 // Simple top-down minimap: draws only explored tiles (state.discovered)
 // plus the player marker with a rotation matching facing, per the plan.
+//
+// The map itself is drawn north-up and never rotates — only the player
+// triangle turns to show facing — so a compass (drawn last, pinned to
+// the canvas's own edges rather than any map/world coordinate) is what
+// lets a glance at the map be translated into "what's to my left/right
+// right now": read off which compass letter is closest to the side of
+// the triangle you care about, then match that to the corresponding
+// side wall in the first-person view. Without it, "left of the icon on
+// the map" only means "your actual left" when you happen to be facing
+// north — any other facing and screen-left on this fixed map is really
+// some other absolute direction (behind you, if you're facing south).
 
 const CELL = 14; // px per cell on the canvas
+const COMPASS_MARGIN = 10; // px in from the canvas edge
+const COMPASS_COLOR = '#8a7550'; // matches the wall-line stroke, dimmer than the accent gold used for you-are-here/stairs
+const COMPASS_FONT = 'bold 11px Georgia, serif'; // matches the game's own display font family (see base.css)
 
 export function renderMinimap(canvas, map, discovered) {
   const ctx = canvas.getContext('2d');
@@ -51,5 +65,38 @@ export function renderMinimap(canvas, map, discovered) {
   ctx.lineTo(-5, -5);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
+
+  drawCompass(ctx, canvas, map.playerPos.facing);
+}
+
+// Four fixed labels pinned to the canvas's own edges (not the map's
+// world coordinates, so they never pan/scroll with the tiles above).
+// The one matching current facing is picked out in the brighter accent
+// color — a quick way to answer "which of these is forward?" without
+// even reading the letters, since it's the same one the triangle points
+// at. The other three stay put too, dimmer, so N/E/S/W are always all
+// visible for translating any OTHER side of the triangle you care about
+// (e.g. "the wall was on the map's west side, and I'm facing north, so
+// that's my left").
+function drawCompass(ctx, canvas, facing) {
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const facingLabel = ['N', 'E', 'S', 'W'][facing];
+  const labels = [
+    { text: 'N', x: cx, y: COMPASS_MARGIN, baseline: 'top' },
+    { text: 'S', x: cx, y: canvas.height - COMPASS_MARGIN, baseline: 'bottom' },
+    { text: 'E', x: canvas.width - COMPASS_MARGIN, y: cy, baseline: 'middle' },
+    { text: 'W', x: COMPASS_MARGIN, y: cy, baseline: 'middle' },
+  ];
+
+  ctx.save();
+  ctx.font = COMPASS_FONT;
+  ctx.textAlign = 'center';
+  for (const { text, x, y, baseline } of labels) {
+    ctx.textBaseline = baseline;
+    ctx.fillStyle = text === facingLabel ? '#c9a24b' : COMPASS_COLOR;
+    ctx.fillText(text, x, y);
+  }
   ctx.restore();
 }

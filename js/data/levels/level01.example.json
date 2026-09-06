@@ -1,5 +1,5 @@
 {
-  "_comment": "Example hand-authored level using the exact schema generateDungeon() produces. Not wired up to the loader yet (phase 1 always uses the procedural generator) — this exists so a future 'load an authored level' path has a known-good reference. Drop a level like this into this folder and pass it to loadLevelFromJSON() to use it instead of the generator.",
+  "_comment": "Example hand-authored level using the exact schema generateDungeon() produces — kept as a known-good reference for the schema. The real level01.js (this folder) is the actual fixed opening level main.js loads via loadLevelFromJSON(); every floor after it still comes from the procedural generator.",
   "id": "level01",
   "width": 3,
   "height": 3,

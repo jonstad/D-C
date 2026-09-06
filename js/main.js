@@ -10,7 +10,8 @@ import { initQuests } from './core/questManager.js';
 import { CLASS_DATA } from './data/classes.js';
 import { DEFAULT_PARTY } from './data/partyPresets.js';
 import { Character } from './entities/Character.js';
-import { loadProceduralLevel } from './world/levelLoader.js';
+import { loadLevelFromJSON } from './world/levelLoader.js';
+import { LEVEL01 } from './data/levels/level01.js';
 import * as movement from './world/movement.js';
 import { renderScene } from './ui/renderer.js';
 import { renderMinimap } from './ui/minimap.js';
@@ -102,7 +103,10 @@ btnConfirmClass.addEventListener('click', () => {
 
 // --- EXPLORE ----------------------------------------------------------------
 function startExploring() {
-  state.map = loadProceduralLevel({ width: 12, height: 12, seed: Date.now() & 0xffffffff });
+  // Level 1 is always this same hand-authored layout (see
+  // data/levels/level01.js) — only the floors reached afterward, via
+  // world/movement.js's descendLevel(), are procedurally generated.
+  state.map = loadLevelFromJSON(LEVEL01);
   initQuests();
   markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
   const names = state.party.map((c) => c.name);

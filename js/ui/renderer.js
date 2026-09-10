@@ -12,7 +12,18 @@
 
 import { FACING_VECTORS } from '../world/mapModel.js';
 
-const MAX_DEPTH = 5;
+// How many cells ahead the ray in look() will trace before giving up
+// (still stops earlier at a wall, same as always). 5 was tuned for the
+// old maze generator, whose 1-wide passages meant you'd almost always
+// hit a wall or a turn well before that anyway. Now that
+// world/dungeonGen.js drops actual 3-5-cell rooms, a straight sightline
+// across an open room can easily run longer than 5 tiles — anything
+// past the cutoff isn't dimmed or fogged, it's just never drawn, so it
+// read as an abrupt wall of black even though the room kept going. Bumped
+// enough to cover the biggest rooms plus a stretch of corridor beyond
+// them; more slices costs a handful of extra (cheap) DOM elements per
+// render, nothing worth worrying about.
+const MAX_DEPTH = 10;
 
 // Tuning knobs, all expressed as multiples of the viewport's own pixel
 // size so the scene always fills the frame the same way regardless of
@@ -41,7 +52,7 @@ const PITCH_DIVISIONS = 2;
 // they read as "a few torches along the corridor" rather than one on
 // every panel. Torches beyond this depth aren't worth the DOM cost —
 // they'd render too small to read anyway.
-const TORCH_MAX_DEPTH = 3;
+const TORCH_MAX_DEPTH = 6;
 const TORCH_CHANCE = 3; // roughly 1-in-3 eligible walls gets a torch
 
 // A small, fast, deterministic integer hash — same (x,y,salt) always
@@ -227,52 +238,79 @@ function torchEl(tile, wallHeight) {
   return frag;
 }
 
-// look() only ever looks straight ahead, so when a side wall is absent
-// (an opening into an adjacent cell), there was nothing rendered into
-// that gap at all — it just showed whatever's behind the scene (flat
-// black). This peeks one tile into the opening: the floor and ceiling
-// continuing sideways, plus (see capNeeded below) a wall closing off
-// the far edge of that peek where nothing else would.
+// look() only ever traces straight ahead, so a side wall being absent
+// (an opening toward an adjacent cell) used to just peek exactly one
+// tile sideways before capping it off — fine for the old maze's 1-wide
+// passages, where a "room" was never more than a single cell deep
+// anyway, but with world/dungeonGen.js now dropping actual 3-5-cell
+// rooms, one tile of peek left most of a room's true width undrawn:
+// pure black past that first sliver, even though it was open floor.
 //
-// capNeeded is true unless the SAME side opening continues at the next
-// depth too — in which case that next depth's own alcove tile picks up
-// exactly where this one's Z-range ends, so nothing needs to close the
-// gap between them (verified: no seam). Whenever the opening doesn't
-// continue — the main corridor's wall resumes at the next depth, or
-// there is no next depth at all — the alcove's own floor/ceiling reach a
-// tile-width farther out (X) than the resuming corridor's do, and nothing
-// was ever rendered to cover that extra width at that depth. That's a
-// genuine hole in the geometry, not a stylistic gap, so it needs an
-// actual wall, not just "let it fade to black" — the earlier version of
-// this function guessed at whether to cap using a map lookup in the
-// wrong direction and missed exactly this case.
-function openingRevealEls(sign, capNeeded, zFar, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize) {
-  const els = [];
-  const offsetX = sign * TILE;
+// This instead traces how many cells you could actually walk sideways
+// before hitting a real wall (openSideDepth) and draws a floor/ceiling
+// tile for every one of them, capped with a proper wall panel at
+// whichever offset the real wall sits — the same wall-side rendering
+// used for an immediately-adjacent wall, just positioned farther out.
+// A simple rectangular room has no interior walls, so tracing sideways
+// from any point inside it walks all the way to the room's actual far
+// wall, which is exactly what should be drawn.
+const SIDE_MAX_DEPTH = 6; // safety cap, comfortably past dungeonGen.js's largest room (5 cells) so a real far wall is always reached
 
-  els.push(panelEl(
-    'scene-slice floor-slice',
-    TILE, TILE,
-    `translate3d(${offsetX}px, ${WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(90deg)`,
-    wallBgSize
-  ));
-  els.push(panelEl(
-    'scene-slice ceiling-slice',
-    TILE, TILE,
-    `translate3d(${offsetX}px, ${-WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(-90deg)`,
-    wallSideBgSize
-  ));
+function openSideDepth(map, x, y, dirIdx) {
+  let cx = x, cy = y, depth = 0;
+  while (depth < SIDE_MAX_DEPTH) {
+    if (map.hasWall(cx, cy, dirIdx)) return { depth, blocked: true };
+    const v = FACING_VECTORS[dirIdx];
+    cx += v.dx; cy += v.dy;
+    depth++;
+  }
+  return { depth, blocked: false }; // ran out of trace budget without finding a wall — draws the floor/ceiling it found but leaves the far edge open rather than guessing at a wall that isn't there
+}
 
-  if (capNeeded) {
-    els.push(panelEl(
-      'scene-slice wall-front',
-      TILE, WALL_HEIGHT,
-      `translate3d(${offsetX}px, 0px, ${zFar}px)`,
+// Renders everything to one side (sign -1 = left, +1 = right) of the
+// given forward-line slice: zero or more floor/ceiling tiles reaching
+// out to however far that side is actually open, then a wall-side
+// panel where it's finally blocked. depth 0 (a wall immediately
+// beside the player) collapses to exactly the old single wall-side
+// panel — same position, same torch treatment — so this replaces both
+// the old direct wall-side render and the old opening-peek fallback
+// with one path.
+function renderSideWalls(scene, map, slice, sign, dirIdx, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize) {
+  const { depth, blocked } = openSideDepth(map, slice.x, slice.y, dirIdx);
+
+  for (let i = 1; i <= depth; i++) {
+    const offsetX = sign * i * TILE;
+    scene.appendChild(panelEl(
+      'scene-slice floor-slice',
+      TILE, TILE,
+      `translate3d(${offsetX}px, ${WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(90deg)`,
       wallBgSize
+    ));
+    scene.appendChild(panelEl(
+      'scene-slice ceiling-slice',
+      TILE, TILE,
+      `translate3d(${offsetX}px, ${-WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(-90deg)`,
+      wallSideBgSize
     ));
   }
 
-  return els;
+  if (!blocked) return; // hit the trace budget with no wall found — extremely unlikely given room sizes, just leave the far edge open
+
+  const wallOffsetX = sign * (depth + 0.5) * TILE;
+  const wall = panelEl(
+    `scene-slice wall-side ${sign < 0 ? 'left' : 'right'}`,
+    TILE, WALL_HEIGHT,
+    `translate3d(${wallOffsetX}px, 0px, ${zCenter}px) rotateY(${sign < 0 ? 90 : -90}deg)`,
+    wallSideBgSize
+  );
+  // Only the immediately-adjacent wall (depth 0) ever gets a torch,
+  // same as before — a wall several tiles into an open room isn't
+  // "along the corridor" in the sense the torch density was tuned for.
+  if (depth === 0 && hasTorchOnWall(slice.x, slice.y, dirIdx, slice.depth)) {
+    wall.style.transformStyle = 'preserve-3d';
+    wall.appendChild(torchEl(TILE, WALL_HEIGHT));
+  }
+  scene.appendChild(wall);
 }
 
 export function renderScene(viewportEl, map) {
@@ -335,47 +373,8 @@ export function renderScene(viewportEl, map) {
       wallSideBgSize
     ));
 
-    if (slice.hasLeftWall) {
-      const wall = panelEl(
-        'scene-slice wall-side left',
-        TILE, WALL_HEIGHT,
-        `translate3d(${-TILE / 2}px, 0px, ${zCenter}px) rotateY(90deg)`,
-        wallSideBgSize
-      );
-      if (hasTorchOnWall(slice.x, slice.y, leftDir, slice.depth)) {
-        wall.style.transformStyle = 'preserve-3d';
-        wall.appendChild(torchEl(TILE, WALL_HEIGHT));
-      }
-      scene.appendChild(wall);
-    } else {
-      // Cap the alcove's far edge unless the SAME opening continues at
-      // the next depth too (that depth's own alcove tile picks up
-      // exactly where this one's Z-range ends, with nothing to fill).
-      const nextSlice = slices[slice.depth + 1];
-      const capNeeded = !(nextSlice && !nextSlice.hasLeftWall);
-      for (const el of openingRevealEls(
-        -1, capNeeded, zFar, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize
-      )) scene.appendChild(el);
-    }
-    if (slice.hasRightWall) {
-      const wall = panelEl(
-        'scene-slice wall-side right',
-        TILE, WALL_HEIGHT,
-        `translate3d(${TILE / 2}px, 0px, ${zCenter}px) rotateY(-90deg)`,
-        wallSideBgSize
-      );
-      if (hasTorchOnWall(slice.x, slice.y, rightDir, slice.depth)) {
-        wall.style.transformStyle = 'preserve-3d';
-        wall.appendChild(torchEl(TILE, WALL_HEIGHT));
-      }
-      scene.appendChild(wall);
-    } else {
-      const nextSlice = slices[slice.depth + 1];
-      const capNeeded = !(nextSlice && !nextSlice.hasRightWall);
-      for (const el of openingRevealEls(
-        1, capNeeded, zFar, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize
-      )) scene.appendChild(el);
-    }
+    renderSideWalls(scene, map, slice, -1, leftDir, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize);
+    renderSideWalls(scene, map, slice, 1, rightDir, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize);
 
     if (slice.hasFrontWall) {
       const isDoor = slice.features.includes('door');

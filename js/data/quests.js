@@ -10,13 +10,21 @@
 //   'killCount' — progress increments by 1 on every combat victory (see
 //     combat/combatEngine.js's 'combatVictory' bus event); optionally
 //     restricted to a specific `monsterId` (omit it for "any monster" —
-//     see clear_the_vermin below for the any-monster case; a future
-//     quest like "kill 3 Orcs" would just add monsterId: 'orc').
+//     a quest like "kill 3 Orcs" just adds monsterId: 'orc', as below).
 //
 // Every quest also carries a flat `target` — the count that completes
 // it (reachStairs quests use target: 1 purely so the same
 // progress/target rendering works for every quest type without a
 // special case in the UI).
+//
+// `after` (optional) chains one quest behind another: a quest with an
+// `after` starts out with status 'locked' instead of 'active' (see
+// core/questManager.js's initQuests()) and stays invisible in the
+// quest log (js/ui/questUI.js filters locked quests out) until the
+// quest it names completes, at which point questManager.js's
+// completeQuest() flips it to 'active' on its own — no engine changes
+// needed to chain further quests, just point `after` at whichever
+// quest should come first.
 
 export const QUEST_DATA = {
   find_the_stairs: {
@@ -26,12 +34,31 @@ export const QUEST_DATA = {
     type: 'reachStairs',
     target: 1,
   },
-  clear_the_vermin: {
-    id: 'clear_the_vermin',
-    name: 'Clear the Vermin',
-    description: 'Defeat 5 monsters, of any kind.',
+  clear_the_slimes: {
+    id: 'clear_the_slimes',
+    name: 'Clear the Slimes',
+    description: 'Defeat 3 Slimes.',
     type: 'killCount',
+    monsterId: 'slime',
+    target: 3,
+  },
+  clear_the_skeletons: {
+    id: 'clear_the_skeletons',
+    name: 'Clear the Skeletons',
+    description: 'Defeat 4 Skeletons.',
+    type: 'killCount',
+    monsterId: 'skeleton',
+    target: 4,
+    after: 'clear_the_slimes',
+  },
+  clear_the_orcs: {
+    id: 'clear_the_orcs',
+    name: 'Clear the Orcs',
+    description: 'Defeat 5 Orcs.',
+    type: 'killCount',
+    monsterId: 'orc',
     target: 5,
+    after: 'clear_the_skeletons',
   },
 };
 

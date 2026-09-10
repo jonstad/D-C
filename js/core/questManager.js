@@ -13,15 +13,28 @@ import { QUEST_LIST } from '../data/quests.js';
 // Called once when a new descent begins (see main.js's startExploring())
 // — quests are per-run for now, same as state.map/state.turnCount
 // resetting fresh each time; nothing carries a quest over between runs
-// yet.
+// yet. A quest with an `after` (see data/quests.js) starts 'locked'
+// instead of 'active' — completeQuest() below is what unlocks it once
+// its prerequisite finishes.
 export function initQuests() {
-  state.quests = QUEST_LIST.map((def) => ({ ...def, progress: 0, status: 'active' }));
+  state.quests = QUEST_LIST.map((def) => ({ ...def, progress: 0, status: def.after ? 'locked' : 'active' }));
+}
+
+function unlockQuest(quest) {
+  quest.status = 'active';
+  addLog(`New quest: ${quest.name}`);
+  bus.emit('questUnlocked', { quest });
 }
 
 function completeQuest(quest) {
   quest.status = 'complete';
   addLog(`Quest complete: ${quest.name}!`);
   bus.emit('questComplete', { quest });
+  // Chain: whichever quest (if any) names this one in its `after`
+  // was waiting on it — set generically so a longer chain just means
+  // more `after` pointers in data/quests.js, no code changes here.
+  const next = state.quests.find((q) => q.after === quest.id);
+  if (next && next.status === 'locked') unlockQuest(next);
 }
 
 function advanceQuest(quest, amount) {

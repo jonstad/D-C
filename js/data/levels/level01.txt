@@ -7,9 +7,10 @@ map:
 ##.##
 ##..1
 ...##
-12.##
+12.3#
 ##@##
 
 legend:
 1 = item potion_minor_heal
 2 = encounter slime 0.4
+3 = item 100_gold

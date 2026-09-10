@@ -63,7 +63,7 @@ function onArrive() {
 // player arrives on a stairsDown tile (see checkTileEvents below), so
 // there's no separate "use stairs" action to wire up yet.
 function descendLevel() {
-  const map = loadProceduralLevel({ width: 12, height: 12, seed: Date.now() & 0xffffffff });
+  const map = loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff });
   startNewLevel(map);
   markDiscovered(map.playerPos.x, map.playerPos.y);
   addLog(`You descend to level ${state.level}.`);

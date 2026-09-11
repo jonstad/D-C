@@ -325,8 +325,8 @@ function safeSideCapTiles(forwardDepth) {
 // improves (walking a tile further in, or turning to face it) — better
 // than misrepresenting whether a path is open, since the minimap already
 // tells the player the truth about that.
-function renderSideWalls(scene, map, slice, sign, dirIdx, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize) {
-  const { depth, blocked } = openSideDepth(map, slice.x, slice.y, dirIdx);
+function renderSideWalls(scene, trace, slice, sign, dirIdx, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize) {
+  const { depth, blocked } = trace;
 
   for (let i = 1; i <= depth; i++) {
     const offsetX = sign * i * TILE;
@@ -363,6 +363,39 @@ function renderSideWalls(scene, map, slice, sign, dirIdx, zCenter, TILE, WALL_HE
   scene.appendChild(wall);
 }
 
+// renderSideWalls only ever looks straight sideways from each forward
+// slice's own (x,y) — it has no notion of the DIAGONAL corner between
+// one slice's lateral reach and the next slice's, so when a room's
+// boundary steps in or out as you look farther down it (a corridor
+// widening into a room, an alcove, an irregular room shape — anything
+// dungeonGen.js's rectangular rooms connected by corridors produces
+// constantly), nothing ever closes that corner. Floor and ceiling still
+// render correctly on both sides of the step individually, but the gap
+// between them is just empty space, and whatever's beyond it — another
+// wall, another room — shows through where solid rock belongs.
+//
+// This closes that gap: wherever the traced depth to one side differs
+// between a slice and the next-nearer one, there's a real perpendicular
+// wall segment at that boundary, spanning from the nearer reach to the
+// farther one. It renders as a plain forward-facing panel — the same
+// unrotated orientation as the main dead-end wall — because the viewer
+// is always on the near (smaller-z) side of this boundary and so always
+// sees its front face, whichever way the step actually goes.
+function renderSideStep(scene, nearTrace, farTrace, sign, boundaryDepthIndex, TILE, WALL_HEIGHT, wallBgSize) {
+  if (nearTrace.depth === farTrace.depth) return; // boundary is flush, no corner to close
+  const lo = Math.min(nearTrace.depth, farTrace.depth);
+  const hi = Math.max(nearTrace.depth, farTrace.depth);
+  const z = -boundaryDepthIndex * TILE;
+  const width = (hi - lo) * TILE;
+  const centerOffset = sign * ((lo + hi) / 2) * TILE;
+  scene.appendChild(panelEl(
+    'scene-slice wall-front',
+    width, WALL_HEIGHT,
+    `translate3d(${centerOffset}px, 0px, ${z}px)`,
+    wallBgSize
+  ));
+}
+
 export function renderScene(viewportEl, map) {
   viewportEl.innerHTML = '';
   const vw = viewportEl.clientWidth || 640;
@@ -395,6 +428,12 @@ export function renderScene(viewportEl, map) {
   const leftDir = (facing + 3) % 4;
   const rightDir = (facing + 1) % 4;
 
+  // Traced once per slice up front (rather than inside renderSideWalls)
+  // so renderSideStep can compare a slice's reach against the very next
+  // slice's — see renderSideStep for why that comparison is needed.
+  const leftTraces = slices.map((slice) => openSideDepth(map, slice.x, slice.y, leftDir));
+  const rightTraces = slices.map((slice) => openSideDepth(map, slice.x, slice.y, rightDir));
+
   // Draw back-to-front. The browser sorts overlapping 3D geometry within
   // the preserve-3d context on its own, but painting far-to-near keeps
   // things sane for any flat 2D overlay added after (the fog vignette).
@@ -423,8 +462,18 @@ export function renderScene(viewportEl, map) {
       wallSideBgSize
     ));
 
-    renderSideWalls(scene, map, slice, -1, leftDir, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize);
-    renderSideWalls(scene, map, slice, 1, rightDir, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize);
+    renderSideWalls(scene, leftTraces[i], slice, -1, leftDir, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize);
+    renderSideWalls(scene, rightTraces[i], slice, 1, rightDir, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize);
+
+    // The corner between this slice's own lateral reach and the very
+    // next (nearer) slice's — see renderSideStep. Compared here rather
+    // than in the loop's own i>0 branch below the front-wall handling so
+    // it happens once per boundary, keyed to the farther slice of the
+    // pair (this one), regardless of draw order.
+    if (i > 0) {
+      renderSideStep(scene, leftTraces[i - 1], leftTraces[i], -1, i, TILE, WALL_HEIGHT, wallBgSize);
+      renderSideStep(scene, rightTraces[i - 1], rightTraces[i], 1, i, TILE, WALL_HEIGHT, wallBgSize);
+    }
 
     if (slice.hasFrontWall) {
       const isDoor = slice.features.includes('door');

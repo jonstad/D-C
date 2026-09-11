@@ -267,7 +267,7 @@ function openSideDepth(map, x, y, dirIdx) {
   return { depth, blocked: false }; // ran out of trace budget without finding a wall — draws the floor/ceiling it found but leaves the far edge open rather than guessing at a wall that isn't there
 }
 
-// How many lateral tiles out a wall-side panel can be capped before it
+// How many lateral tiles out a wall-side panel can sit before it
 // perspective-projects mostly or entirely outside the frame. CSS
 // perspective maps a world offset `o` at depth `z` to a screen offset of
 // roughly `o * PERSPECTIVE/(PERSPECTIVE+|z|)` — the SAME lateral offset
@@ -276,34 +276,22 @@ function openSideDepth(map, x, y, dirIdx) {
 // over which the perspective divide can shrink it back down. A wall 2+
 // tiles to the side of the player's OWN cell (forwardDepth 0) lands
 // almost entirely off-screen; the identical 2-tile offset attached to a
-// slice 5 tiles down a corridor lands comfortably inside the frame (this
-// is exactly what made the wide-room and long-corridor tests look right
-// while this exact dead-end-with-an-open-side case came out as a flat
-// void — the true far wall was being placed somewhere the camera can't
-// see at all).
+// slice 5 tiles down a corridor lands comfortably inside the frame —
+// which is exactly what made the wide-room and long-corridor tests look
+// right while a room only 2 tiles wide, viewed from right at its edge,
+// still came out wrong.
 //
 // Solving `o * PERSPECTIVE/(PERSPECTIVE+|z|) <= TILE/2` (the frame's own
 // half-width, since TILE is defined as the full viewport width) for `o`
 // gives the formula below. The wall panel itself sits half a tile
-// further out than the number of floor tiles it caps (offset
-// `renderDepth + 0.5`, same convention the wall placement below uses),
-// so this solves directly for the largest integer renderDepth whose
-// wall still lands at or inside that half-width — not for the offset
-// itself, which is what an earlier version of this got wrong (capping
-// the floor-tile count to a "safe" value while still placing the wall
-// half a tile beyond it, right back outside the frame).
+// further out than the tile count it's keyed to (offset
+// `depth + 0.5`, matching the wall placement below), so this solves for
+// the largest integer depth whose wall still lands at or inside that
+// half-width, not for the offset itself.
 //
-// At the very nearest slices this floors all the way to 0 — a real
-// finding, not a bug to paper over: a wall more than about half a tile
-// to the side of the player's own cell is close enough, and far enough
-// off the forward axis, that a narrow-FOV forward view genuinely can't
-// show it, the same way you can't see something directly beside you
-// without turning your head. Slice depth 0 already renders a true
-// adjacent wall (or none) correctly on its own; when there's an opening
-// there instead, capping at 0 here means "show a wall right at the edge
-// of what this viewing angle can represent" rather than leaving a gap —
-// the room's real width becomes visible once the corridor carries the
-// view a few tiles further in, or once the player turns to face it.
+// Used only to decide whether it's worth drawing a wall at all — never
+// to decide how much floor/ceiling to draw, which stays harmless even
+// off-screen (see renderSideWalls).
 function safeSideCapTiles(forwardDepth) {
   const zMagTiles = forwardDepth + 0.5;
   const safeOffsetTiles = 0.5 * (1 + zMagTiles / FOV_RATIO);
@@ -311,24 +299,36 @@ function safeSideCapTiles(forwardDepth) {
 }
 
 // Renders everything to one side (sign -1 = left, +1 = right) of the
-// given forward-line slice: zero or more floor/ceiling tiles reaching
-// out to however far that side is actually open (but never past what's
-// actually visible from this depth — see safeSideCapTiles), then a
-// wall-side panel capping it off. depth 0 (a wall immediately beside the
-// player) collapses to exactly the old single wall-side panel — same
-// position, same torch treatment.
+// given forward-line slice: a floor/ceiling tile for every cell that's
+// actually open that way (openSideDepth), and — only when the real wall
+// that stops it is close enough to actually land on screen (see
+// safeSideCapTiles) — a wall-side panel there. depth 0 (a wall
+// immediately beside the player) collapses to exactly the old single
+// wall-side panel — same position, same torch treatment.
 //
-// The cap wall is always drawn, whether or not a real wall was found
-// that close — if the room's true wall is farther out than this slice
-// can safely show (or the trace ran out of budget without finding one
-// at all), a nearby implied wall reads far better than leaving a gap of
-// unrendered void where the floor and ceiling would otherwise just trail
-// off past the edge of what the camera can see.
+// The floor/ceiling tiles are always drawn out to the FULL traced depth
+// regardless of how far that projects — an extra tile that lands outside
+// the frame is simply clipped by the viewport's own overflow:hidden, at
+// no cost. A wall panel that lands off-screen isn't just wasted, though:
+// an earlier version of this drew one anyway, at some nearer distance
+// that WOULD land on screen, and that actively lied about the map
+// whenever the real reason the true wall was "too far to show" is that
+// there isn't one nearby at all — just an open corridor continuing past
+// what this forward-facing glance can represent (a T-junction is exactly
+// this: the branch is wide open, it's just not aimed at the camera). So:
+// no wall unless the real one is at or inside the safe distance. Where it
+// isn't, the floor and ceiling simply recede toward the horizon and off
+// the sides of the frame — "this keeps going, you can't see how far from
+// here" rather than a fabricated dead end. The tradeoff is that a room
+// wider than about 2 tiles, viewed edge-on from right at its threshold,
+// shows as open darkness rather than a crisp wall until the view angle
+// improves (walking a tile further in, or turning to face it) — better
+// than misrepresenting whether a path is open, since the minimap already
+// tells the player the truth about that.
 function renderSideWalls(scene, map, slice, sign, dirIdx, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize) {
   const { depth, blocked } = openSideDepth(map, slice.x, slice.y, dirIdx);
-  const renderDepth = Math.min(depth, safeSideCapTiles(slice.depth));
 
-  for (let i = 1; i <= renderDepth; i++) {
+  for (let i = 1; i <= depth; i++) {
     const offsetX = sign * i * TILE;
     scene.appendChild(panelEl(
       'scene-slice floor-slice',
@@ -344,18 +344,19 @@ function renderSideWalls(scene, map, slice, sign, dirIdx, zCenter, TILE, WALL_HE
     ));
   }
 
-  const wallOffsetX = sign * (renderDepth + 0.5) * TILE;
+  if (!blocked || depth > safeSideCapTiles(slice.depth)) return; // no real wall within safe view range — leave it open, not faked shut
+
+  const wallOffsetX = sign * (depth + 0.5) * TILE;
   const wall = panelEl(
     `scene-slice wall-side ${sign < 0 ? 'left' : 'right'}`,
     TILE, WALL_HEIGHT,
     `translate3d(${wallOffsetX}px, 0px, ${zCenter}px) rotateY(${sign < 0 ? 90 : -90}deg)`,
     wallSideBgSize
   );
-  // Only a genuinely adjacent real wall (depth 0 AND actually blocked,
-  // not just capped down to 0) ever gets a torch, same as before — a
-  // wall several tiles into an open room, real or implied, isn't "along
-  // the corridor" in the sense the torch density was tuned for.
-  if (depth === 0 && blocked && hasTorchOnWall(slice.x, slice.y, dirIdx, slice.depth)) {
+  // Only a genuinely adjacent wall (depth 0) ever gets a torch, same as
+  // before — a wall several tiles into an open room isn't "along the
+  // corridor" in the sense the torch density was tuned for.
+  if (depth === 0 && hasTorchOnWall(slice.x, slice.y, dirIdx, slice.depth)) {
     wall.style.transformStyle = 'preserve-3d';
     wall.appendChild(torchEl(TILE, WALL_HEIGHT));
   }

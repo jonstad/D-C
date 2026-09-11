@@ -381,7 +381,20 @@ function renderSideWalls(scene, trace, slice, sign, dirIdx, zCenter, TILE, WALL_
 // unrotated orientation as the main dead-end wall — because the viewer
 // is always on the near (smaller-z) side of this boundary and so always
 // sees its front face, whichever way the step actually goes.
+//
+// Both traces have to be genuinely blocked (a real wall found) for this
+// to fire. openSideDepth gives up after SIDE_MAX_DEPTH tiles and reports
+// that as `depth` even with nothing there (blocked: false) — treating
+// that cap as though it were the true wall position, the same mistake
+// renderSideWalls avoids for a single wall, is worse here: it draws a
+// panel spanning all the way out to that fabricated edge, at whatever
+// width and offset that implies, which can be wide enough to swallow
+// the entire forward view — including the real, closer geometry (like
+// the actual front wall) it has no business standing in front of. Where
+// either side is unconfirmed, this leaves the corner open rather than
+// guessing at where to close it, same principle as renderSideWalls.
 function renderSideStep(scene, nearTrace, farTrace, sign, boundaryDepthIndex, TILE, WALL_HEIGHT, wallBgSize) {
+  if (!nearTrace.blocked || !farTrace.blocked) return; // at least one side is an unconfirmed guess, not a real wall — don't fake the corner
   if (nearTrace.depth === farTrace.depth) return; // boundary is flush, no corner to close
   const lo = Math.min(nearTrace.depth, farTrace.depth);
   const hi = Math.max(nearTrace.depth, farTrace.depth);

@@ -50,9 +50,11 @@ export function resetGame() {
 // anything else. Then: if `newDepth` was already visited this run, its
 // snapshot is restored as-is (including playerPos, which was sitting on
 // the connecting stairs tile the moment we left it, so the party
-// re-arrives exactly where they'd expect). Otherwise `generateMapFn()`
-// builds a brand-new level for that depth, with a fresh discovered set
-// and encounter budget, which is itself immediately snapshot so a later
+// re-arrives exactly where they'd expect). Otherwise `generateMapFn(newDepth)`
+// builds a brand-new level for that depth (the depth is passed through so
+// the generator can, e.g., pick depth-appropriate monsters — see
+// data/monsters.js's monstersForFloor()), with a fresh discovered set and
+// encounter budget, which is itself immediately snapshot so a later
 // return trip finds it too.
 //
 // Quests are NOT touched here — they're a per-run thing (like
@@ -72,7 +74,7 @@ export function goToLevel(newDepth, generateMapFn) {
     state.discovered = cached.discovered;
     state.encounterCount = cached.encounterCount;
   } else {
-    state.map = generateMapFn();
+    state.map = generateMapFn(newDepth);
     state.discovered = new Set();
     state.encounterCount = 0;
     state.levels.set(newDepth, {

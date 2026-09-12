@@ -63,7 +63,7 @@ function onArrive() {
 // confirmStairs below) — checkTileEvents() itself no longer descends
 // automatically.
 function descendLevel() {
-  goToLevel(state.level + 1, () => loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff }));
+  goToLevel(state.level + 1, (depth) => loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff, depth }));
   markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
   addLog(`You descend to level ${state.level}.`);
   bus.emit('levelChanged', { level: state.level });
@@ -75,8 +75,8 @@ function descendLevel() {
 // from depth N-1), so the generator passed here is only a defensive
 // fallback and shouldn't ever actually run.
 function ascendLevel() {
-  goToLevel(state.level - 1, () => loadProceduralLevel({
-    width: 16, height: 16, seed: Date.now() & 0xffffffff, withStairsUp: false,
+  goToLevel(state.level - 1, (depth) => loadProceduralLevel({
+    width: 16, height: 16, seed: Date.now() & 0xffffffff, withStairsUp: false, depth,
   }));
   markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
   addLog(`You climb back up to level ${state.level}.`);

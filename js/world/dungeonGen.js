@@ -22,6 +22,8 @@
 // so every room is reachable from the start and the exit sits at
 // whichever room ended up last in that chain.
 
+import { monstersForFloor } from '../data/monsters.js';
+
 function mulberry32(seed) {
   // Small deterministic PRNG so a seed can be shared/replayed.
   return function () {
@@ -106,7 +108,16 @@ export function generateDungeon({
   width = 16,
   height = 16,
   seed = Date.now() & 0xffffffff,
-  monsterGroups = ['slime', 'orc', 'skeleton'],
+  // Which dungeon depth this level IS — feeds monstersForFloor() below
+  // to pick the right monster pool for encounters placed here. Ignored
+  // if `monsterGroups` is passed explicitly (an explicit list always
+  // wins, e.g. for a hand-tuned or test level).
+  depth = 1,
+  // Explicit override for the encounter pool. Leave unset in normal
+  // play — the depth-based lookup in data/monsters.js (monstersForFloor)
+  // is the actual source of truth for "what can appear on floor N", and
+  // is what to edit to retune monster floor ranges.
+  monsterGroups,
   itemPool = ['potion_minor_heal'],
   // Every level reached by descending stairs needs a way back up, so a
   // stairsUp feature/exit is placed at the spawn point by default (the
@@ -219,6 +230,14 @@ export function generateDungeon({
   const encounterCount = Math.max(1, rooms.length - 1);
   const itemCount = Math.max(1, rooms.length);
 
+  // The actual monster pool for this level: an explicit override wins,
+  // otherwise it's whatever data/monsters.js's floor ranges say is valid
+  // at `depth` (see that file to retune which monsters show up where).
+  // A depth past every monster's range (or before any of them) legally
+  // yields an empty pool — that just means this floor places no
+  // map-encounters at all rather than crashing on a 0-length pick.
+  const monsterPool = monsterGroups ?? monstersForFloor(depth);
+
   function randomRoomCell() {
     let cell;
     do {
@@ -227,13 +246,15 @@ export function generateDungeon({
     return cell;
   }
 
-  for (let i = 0; i < encounterCount; i++) {
-    const { x, y } = randomRoomCell();
-    encounters.push({
-      at: [x, y],
-      monsterGroup: monsterGroups[Math.floor(rand() * monsterGroups.length)],
-      chance: 0.35,
-    });
+  if (monsterPool.length) {
+    for (let i = 0; i < encounterCount; i++) {
+      const { x, y } = randomRoomCell();
+      encounters.push({
+        at: [x, y],
+        monsterGroup: monsterPool[Math.floor(rand() * monsterPool.length)],
+        chance: 0.35,
+      });
+    }
   }
 
   for (let i = 0; i < itemCount; i++) {

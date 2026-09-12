@@ -117,7 +117,7 @@ async function startExploring() {
     state.map = await loadTextLevel('js/data/levels/level01.txt');
   } catch (err) {
     console.error('Failed to load the fixed opening level, starting on a random one instead:', err);
-    state.map = loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff, withStairsUp: false });
+    state.map = loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff, withStairsUp: false, depth: 1 });
   }
   initQuests();
   markDiscovered(state.map.playerPos.x, state.map.playerPos.y);

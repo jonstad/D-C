@@ -20,7 +20,7 @@
 
 import { state, addLog } from '../core/gameState.js';
 import { bus } from '../core/eventBus.js';
-import { MONSTER_DATA } from '../data/monsters.js';
+import { MONSTER_DATA, monstersForFloor } from '../data/monsters.js';
 import { resolveAbility } from './abilities.js';
 
 const ENEMY_TURN_DELAY = 550; // ms — purely presentational pacing, see scheduleEnemyTurn
@@ -326,11 +326,10 @@ export function playerRunAway() {
 // a turn" hook turnManager.js already anticipated. Both share one cap
 // (state.encounterCount, incremented here) so a level doesn't throw
 // more than MAX_ENCOUNTERS_PER_LEVEL fights at the party regardless of
-// which source they came from; core/gameState.js's startNewLevel()
-// resets the counter back to 0 whenever the player descends.
+// which source they came from; core/gameState.js's goToLevel() resets
+// the counter back to 0 for every brand-new level.
 
 const WANDERING_CHANCE = 0.05;
-const WANDERING_MONSTERS = ['slime', 'orc', 'skeleton'];
 const MAX_ENCOUNTERS_PER_LEVEL = 10;
 
 export function maybeTriggerTileEncounter(map, x, y) {
@@ -349,7 +348,15 @@ export function maybeTriggerWanderingEncounter() {
   if (state.screen !== 'explore') return false;
   if (state.encounterCount >= MAX_ENCOUNTERS_PER_LEVEL) return false;
   if (Math.random() > WANDERING_CHANCE) return false;
-  const id = WANDERING_MONSTERS[Math.floor(Math.random() * WANDERING_MONSTERS.length)];
+  // Looked up fresh every roll (not a module-level constant) so it
+  // always reflects the CURRENT depth — see data/monsters.js's
+  // minFloor/maxFloor on each monster for what's adjustable here. A
+  // depth with no eligible monster (outside every range) just means no
+  // wandering encounter can fire there, rather than throwing on a
+  // 0-length pick.
+  const pool = monstersForFloor(state.level);
+  if (!pool.length) return false;
+  const id = pool[Math.floor(Math.random() * pool.length)];
   state.encounterCount += 1;
   startCombat(id);
   return true;

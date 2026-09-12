@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="css/hud.css">
 <link rel="stylesheet" href="css/combat.css">
 <link rel="stylesheet" href="css/quests.css">
+<link rel="stylesheet" href="css/stairs.css">
 </head>
 <body>
 
@@ -117,6 +118,22 @@
          everything; main.js toggles the .show class in response to the
          'questComplete' bus event. -->
     <div id="quest-banner" class="quest-banner"></div>
+
+    <!-- STAIRS CONFIRM PROMPT — a modal overlay (sibling of the
+         .screen sections, same reasoning as #quest-banner above) shown
+         whenever the party arrives on a stairsDown/stairsUp tile.
+         main.js toggles .hidden in response to the 'stairsPrompt' /
+         'stairsPromptCancel' / 'levelChanged' bus events and wires the
+         two buttons to world/movement.js's confirmStairs()/cancelStairs(). -->
+    <div id="stairs-prompt" class="modal-overlay hidden">
+      <div class="modal-box">
+        <p id="stairs-prompt-text">Descend to the next level?</p>
+        <div class="modal-actions">
+          <button id="btn-stairs-yes" class="btn-primary">Yes</button>
+          <button id="btn-stairs-no" class="btn-secondary">No</button>
+        </div>
+      </div>
+    </div>
 
   </div>
 

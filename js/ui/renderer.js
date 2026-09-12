@@ -1,28 +1,52 @@
 // Builds the first-person "scene" for the current cell + facing.
 //
-// Unlike the earlier version, this renders the corridor as an actual CSS
-// 3D scene: each floor/wall panel is a flat div placed in real 3D space
-// with `transform: translate3d(...) rotate*(...)`, inside a container
-// that has `perspective` set. The browser then does real perspective
-// projection (the same math a 3D engine would), which is what makes
-// wall textures — brick coursing especially — converge toward the
-// vanishing point (screen center) the further they recede, instead of
-// running as flat, level rows the way the old 2D-trapezoid approximation
-// drew them.
+// This renders the corridor as an actual CSS 3D scene: each floor/wall
+// panel is a flat div placed in real 3D space with
+// `transform: translate3d(...) rotate*(...)`, inside a container that has
+// `perspective` set. The browser then does real perspective projection
+// (the same math a 3D engine would), which is what makes wall textures —
+// brick coursing especially — converge toward the vanishing point (screen
+// center) the further they recede, instead of running as flat, level rows
+// the way a 2D-trapezoid approximation would draw them.
+//
+// GEOMETRY MODEL: a wall-respecting flood fill (floodFill, below) walks
+// every cell reachable from the player's own cell without crossing a
+// wall, out to MAX_DEPTH. For each reachable cell we know its exact
+// position in camera space (via a fixed rotation derived from the
+// player's facing — see floodFill) and, directly from the map data,
+// exactly which of its four sides are real walls. We then emit one floor
+// panel, one ceiling panel, and one wall panel per real wall edge, each
+// placed by exact grid math — never inferred, capped, or guessed at.
+//
+// An earlier version of this file instead cast one ray straight ahead
+// and patched in independent sideways "peeks" alongside it — a model
+// that had no notion of a room at all, only of a single forward line.
+// Every bug that came up while that stood (walls not drawn far enough to
+// the side; walls drawn off-screen as flat black rectangles; open
+// T-junctions misrepresented as sealed; diagonal room corners left as
+// gaps you could see through; and finally a fabricated wall spanning the
+// whole screen from an unconfirmed "gave up searching" guess) traced
+// back to the same root cause: the renderer was trying to reconstruct a
+// room's shape from a handful of independent linear probes instead of
+// just knowing the shape, which the map already fully specifies. The
+// flood fill below has no probes, caps, or corner patches to get wrong —
+// every panel it draws corresponds to a real, confirmed wall or floor
+// tile the map data says is there.
 
 import { FACING_VECTORS } from '../world/mapModel.js';
 
-// How many cells ahead the ray in look() will trace before giving up
-// (still stops earlier at a wall, same as always). 5 was tuned for the
-// old maze generator, whose 1-wide passages meant you'd almost always
-// hit a wall or a turn well before that anyway. Now that
-// world/dungeonGen.js drops actual 3-5-cell rooms, a straight sightline
-// across an open room can easily run longer than 5 tiles — anything
-// past the cutoff isn't dimmed or fogged, it's just never drawn, so it
-// read as an abrupt wall of black even though the room kept going. Bumped
-// enough to cover the biggest rooms plus a stretch of corridor beyond
-// them; more slices costs a handful of extra (cheap) DOM elements per
-// render, nothing worth worrying about.
+// How many cells out the flood fill in floodFill() will explore before
+// giving up, in BOTH the forward and lateral directions (still stops
+// earlier at a wall, same as always). 5 was tuned for the old maze
+// generator, whose 1-wide passages meant you'd almost always hit a wall
+// or a turn well before that anyway. Now that world/dungeonGen.js drops
+// actual 3-5-cell rooms, a straight sightline (or a wide room) can easily
+// run longer than 5 tiles — anything past the cutoff isn't dimmed or
+// fogged, it's just never drawn, so it read as an abrupt wall of black
+// even though the room kept going. Bumped enough to cover the biggest
+// rooms plus a stretch of corridor beyond them; more panels costs a
+// handful of extra (cheap) DOM elements per render, nothing worth
+// worrying about.
 const MAX_DEPTH = 10;
 
 // Tuning knobs, all expressed as multiples of the viewport's own pixel
@@ -47,11 +71,43 @@ const WALL_HEIGHT_RATIO = 1.15;
 // position offset needed.
 const PITCH_DIVISIONS = 2;
 
-// Wall torches are a purely visual, per-cell decoration (not level data):
-// only cells passing this hash get one, on one wall or the other, so
-// they read as "a few torches along the corridor" rather than one on
-// every panel. Torches beyond this depth aren't worth the DOM cost —
-// they'd render too small to read anyway.
+// How many lateral (side-to-side) tiles out the flood fill is allowed to
+// wander at a given forward depth, before it stops being worth including
+// at all. Graph reachability alone (can you walk there without crossing
+// a wall) is NOT the same thing as visibility (is there any plausible
+// line of sight to it from the camera) — a fully open room connected to
+// the player's cell only through a single one-tile-wide gap is, by pure
+// reachability, "reachable" across its ENTIRE width the moment you're
+// one step past that gap, even though a doorway that narrow could never
+// actually show you that much of the room at once. Left unchecked, that
+// mismatch floods the scene with geometry the camera could never
+// possibly see, which both wastes DOM nodes and gives the browser's
+// (approximate, not a true per-pixel depth buffer) 3D depth-sort so much
+// overlapping, similarly-angled geometry to sort that it can visibly get
+// the paint order wrong.
+//
+// This isn't a wall-drawing inference (nothing here decides where a
+// wall goes — that's still read directly off the map, unconditionally,
+// for every cell the fill does keep). It's a scope limit on the fill
+// itself, using the exact same screen-projection math the CSS
+// perspective transform itself uses: a lateral offset of `o` tiles at
+// forward depth `z` tiles projects to a screen offset of roughly
+// `o * FOV_RATIO/(FOV_RATIO+z)` viewport-widths. Solving for the largest
+// `o` that could still land within (a one-tile-generous margin around)
+// the visible frame, evaluated at the FAR edge of the cell (the most
+// permissive point along its depth, so nothing that could still peek
+// into frame gets cut early), gives how far sideways is even worth
+// enumerating at that depth.
+function maxLateralReach(forwardDepth) {
+  const zFarTiles = forwardDepth + 1;
+  return Math.ceil(0.5 * (1 + zFarTiles / FOV_RATIO) + 1);
+}
+
+// Wall torches are a purely visual, per-wall decoration (not level
+// data): only walls passing this hash get one, so they read as "a few
+// torches around the room" rather than one on every panel. Torches
+// beyond this depth aren't worth the DOM cost — they'd render too small
+// to read anyway.
 const TORCH_MAX_DEPTH = 6;
 const TORCH_CHANCE = 3; // roughly 1-in-3 eligible walls gets a torch
 
@@ -68,12 +124,10 @@ function cellHash(a, b, salt) {
 // that's the same no matter which of its two adjacent cells you're
 // looking from — the wall on the north side of (x,y) IS the south side
 // of (x,y-1); the west side of (x,y) IS the east side of (x-1,y). Only
-// hashing on this canonical form (rather than on "left"/"right", which
-// are relative to whichever way the player currently happens to be
-// facing) is what makes a given physical wall's torch presence a fixed
-// property of the wall itself: the same wall keeps or lacks its torch
-// whether it's currently to your left, your right, dead ahead, or (after
-// you turn around in place) swapped from one side to the other.
+// hashing on this canonical form is what makes a given physical wall's
+// torch presence a fixed property of the wall itself, and it's also what
+// lets the flood fill below dedupe a wall that's reachable from both of
+// its adjacent cells into a single drawn panel.
 function canonicalWall(x, y, dirIdx) {
   if (dirIdx === 0) return [x, y - 1, 2]; // N side of (x,y) == S side of (x,y-1)
   if (dirIdx === 3) return [x - 1, y, 1]; // W side of (x,y) == E side of (x-1,y)
@@ -86,29 +140,84 @@ function hasTorchOnWall(x, y, dirIdx, depth) {
   return cellHash(cx, cy, cdir) % TORCH_CHANCE === 0;
 }
 
-function look(map, x, y, facing) {
-  const slices = [];
-  let cx = x, cy = y;
-  for (let d = 0; d <= MAX_DEPTH; d++) {
-    const cell = map.cellAt(cx, cy);
-    if (!cell) break;
-    const leftFacing = (facing + 3) % 4;
-    const rightFacing = (facing + 1) % 4;
-    slices.push({
-      depth: d,
-      x: cx,
-      y: cy,
-      hasLeftWall: map.hasWall(cx, cy, leftFacing),
-      hasRightWall: map.hasWall(cx, cy, rightFacing),
-      hasFrontWall: map.hasWall(cx, cy, facing),
-      features: cell.features || [],
-    });
-    if (map.hasWall(cx, cy, facing)) break;
-    const v = FACING_VECTORS[facing];
-    cx += v.dx;
-    cy += v.dy;
+// Wall-respecting flood fill: starting from the player's own cell,
+// breadth-first explores every cell reachable WITHOUT crossing a wall
+// (map.hasWall already treats a missing neighbor / map edge as a wall,
+// so this naturally stops at the map boundary too), out to MAX_DEPTH in
+// both the forward and lateral directions.
+//
+// Each visited cell's map-relative offset (dx, dy) from the player is
+// converted to camera-space (right, forward) via one fixed rotation
+// built from the player's facing: `fwd` and `right` are the two
+// FACING_VECTORS for "the direction the camera is looking" and "the
+// direction 90° clockwise from that", so forward = dx·fwd + dy·fwd (dot
+// product) is how many cells ahead of the camera this cell is, and
+// right = dx·right + dy·right is how many cells to its right. Because
+// FACING_VECTORS are all axis-aligned unit vectors, this dot product is
+// always an exact integer — no accumulated rounding, no path-dependence
+// (a cell reachable by two different routes still gets exactly the same
+// camera-space position both times, since it's computed straight from
+// its absolute (x,y), not from the route taken to reach it).
+//
+// forward < 0 (behind the camera) is pruned rather than explored, both
+// because nothing behind the player should ever render and because it
+// keeps the flood fill from wastefully wandering off into the rest of a
+// connected level.
+//
+// Two more prunes keep "reachable" from drifting away from "visible":
+//
+// - forward must never DECREASE as the fill expands outward from the
+//   player's own cell. A step that only becomes reachable by first
+//   moving into the room and doubling back toward the camera's own row
+//   or nearer is a step behind whatever's already been seen further
+//   out — never something a forward-facing camera could have a sightline
+//   to — so it's excluded the same way stepping fully behind the camera
+//   is.
+// - maxLateralReach(forward) (see above) bounds how far sideways is
+//   worth exploring at all at a given depth, so a single-tile gap into a
+//   wide-open room doesn't flood the fill across that room's entire
+//   width the moment the gap is crossed.
+function floodFill(map, px, py, facing) {
+  const fwd = FACING_VECTORS[facing];
+  const right = FACING_VECTORS[(facing + 1) % 4];
+
+  function project(x, y) {
+    const dx = x - px, dy = y - py;
+    return {
+      forward: dx * fwd.dx + dy * fwd.dy,
+      right: dx * right.dx + dy * right.dy,
+    };
   }
-  return slices;
+
+  const key = (x, y) => x + ',' + y;
+  const visited = new Set([key(px, py)]);
+  const queue = [{ x: px, y: py, forward: 0 }];
+  const cells = [];
+
+  while (queue.length) {
+    const { x, y, forward: curForward } = queue.shift();
+    const cell = map.cellAt(x, y);
+    if (!cell) continue;
+    const { forward, right: r } = project(x, y);
+    cells.push({ x, y, forward, right: r, cell });
+
+    for (let dirIdx = 0; dirIdx < 4; dirIdx++) {
+      if (map.hasWall(x, y, dirIdx)) continue; // real wall — can't cross
+      const v = FACING_VECTORS[dirIdx];
+      const nx = x + v.dx, ny = y + v.dy;
+      const nk = key(nx, ny);
+      if (visited.has(nk)) continue;
+      const np = project(nx, ny);
+      if (
+        np.forward < curForward ||
+        np.forward > MAX_DEPTH ||
+        Math.abs(np.right) > maxLateralReach(np.forward)
+      ) continue;
+      visited.add(nk);
+      queue.push({ x: nx, y: ny, forward: np.forward });
+    }
+  }
+  return cells;
 }
 
 function makeEl(className) {
@@ -136,7 +245,7 @@ function panelEl(className, w, h, transform, backgroundSize) {
   return el;
 }
 
-// A wall torch, mounted as a CHILD of a wall-side panel rather than a
+// A wall torch, mounted as a CHILD of a wall panel rather than a
 // separately-3D-placed object. The wall panel itself already has the
 // correct translate3d/rotate transform; giving IT transform-style:
 // preserve-3d (done at the call site, only for panels that get a torch)
@@ -161,7 +270,7 @@ function panelEl(className, w, h, transform, backgroundSize) {
 // Position/size are all in the wall panel's own local pixels: local x
 // runs along the wall's length (0..TILE), local y is height (0..WALL_HEIGHT,
 // with 0 at the ceiling edge and WALL_HEIGHT at the floor edge, since
-// that's how the wall-side panel itself is built in renderScene).
+// that's how the wall panel itself is built in renderScene).
 function torchEl(tile, wallHeight) {
   const torchHeight = wallHeight * 0.34;
   const torchWidth = torchHeight / 2; // matches torch.png's 160:320 aspect
@@ -238,177 +347,6 @@ function torchEl(tile, wallHeight) {
   return frag;
 }
 
-// look() only ever traces straight ahead, so a side wall being absent
-// (an opening toward an adjacent cell) used to just peek exactly one
-// tile sideways before capping it off — fine for the old maze's 1-wide
-// passages, where a "room" was never more than a single cell deep
-// anyway, but with world/dungeonGen.js now dropping actual 3-5-cell
-// rooms, one tile of peek left most of a room's true width undrawn:
-// pure black past that first sliver, even though it was open floor.
-//
-// This instead traces how many cells you could actually walk sideways
-// before hitting a real wall (openSideDepth) and draws a floor/ceiling
-// tile for every one of them, capped with a proper wall panel at
-// whichever offset the real wall sits — the same wall-side rendering
-// used for an immediately-adjacent wall, just positioned farther out.
-// A simple rectangular room has no interior walls, so tracing sideways
-// from any point inside it walks all the way to the room's actual far
-// wall, which is exactly what should be drawn.
-const SIDE_MAX_DEPTH = 6; // safety cap, comfortably past dungeonGen.js's largest room (5 cells) so a real far wall is always reached
-
-function openSideDepth(map, x, y, dirIdx) {
-  let cx = x, cy = y, depth = 0;
-  while (depth < SIDE_MAX_DEPTH) {
-    if (map.hasWall(cx, cy, dirIdx)) return { depth, blocked: true };
-    const v = FACING_VECTORS[dirIdx];
-    cx += v.dx; cy += v.dy;
-    depth++;
-  }
-  return { depth, blocked: false }; // ran out of trace budget without finding a wall — draws the floor/ceiling it found but leaves the far edge open rather than guessing at a wall that isn't there
-}
-
-// How many lateral tiles out a wall-side panel can sit before it
-// perspective-projects mostly or entirely outside the frame. CSS
-// perspective maps a world offset `o` at depth `z` to a screen offset of
-// roughly `o * PERSPECTIVE/(PERSPECTIVE+|z|)` — the SAME lateral offset
-// swings much further across the screen when |z| is small (a nearby
-// slice) than when it's large (a far one), because there's less distance
-// over which the perspective divide can shrink it back down. A wall 2+
-// tiles to the side of the player's OWN cell (forwardDepth 0) lands
-// almost entirely off-screen; the identical 2-tile offset attached to a
-// slice 5 tiles down a corridor lands comfortably inside the frame —
-// which is exactly what made the wide-room and long-corridor tests look
-// right while a room only 2 tiles wide, viewed from right at its edge,
-// still came out wrong.
-//
-// Solving `o * PERSPECTIVE/(PERSPECTIVE+|z|) <= TILE/2` (the frame's own
-// half-width, since TILE is defined as the full viewport width) for `o`
-// gives the formula below. The wall panel itself sits half a tile
-// further out than the tile count it's keyed to (offset
-// `depth + 0.5`, matching the wall placement below), so this solves for
-// the largest integer depth whose wall still lands at or inside that
-// half-width, not for the offset itself.
-//
-// Used only to decide whether it's worth drawing a wall at all — never
-// to decide how much floor/ceiling to draw, which stays harmless even
-// off-screen (see renderSideWalls).
-function safeSideCapTiles(forwardDepth) {
-  const zMagTiles = forwardDepth + 0.5;
-  const safeOffsetTiles = 0.5 * (1 + zMagTiles / FOV_RATIO);
-  return Math.max(0, Math.floor(safeOffsetTiles - 0.5));
-}
-
-// Renders everything to one side (sign -1 = left, +1 = right) of the
-// given forward-line slice: a floor/ceiling tile for every cell that's
-// actually open that way (openSideDepth), and — only when the real wall
-// that stops it is close enough to actually land on screen (see
-// safeSideCapTiles) — a wall-side panel there. depth 0 (a wall
-// immediately beside the player) collapses to exactly the old single
-// wall-side panel — same position, same torch treatment.
-//
-// The floor/ceiling tiles are always drawn out to the FULL traced depth
-// regardless of how far that projects — an extra tile that lands outside
-// the frame is simply clipped by the viewport's own overflow:hidden, at
-// no cost. A wall panel that lands off-screen isn't just wasted, though:
-// an earlier version of this drew one anyway, at some nearer distance
-// that WOULD land on screen, and that actively lied about the map
-// whenever the real reason the true wall was "too far to show" is that
-// there isn't one nearby at all — just an open corridor continuing past
-// what this forward-facing glance can represent (a T-junction is exactly
-// this: the branch is wide open, it's just not aimed at the camera). So:
-// no wall unless the real one is at or inside the safe distance. Where it
-// isn't, the floor and ceiling simply recede toward the horizon and off
-// the sides of the frame — "this keeps going, you can't see how far from
-// here" rather than a fabricated dead end. The tradeoff is that a room
-// wider than about 2 tiles, viewed edge-on from right at its threshold,
-// shows as open darkness rather than a crisp wall until the view angle
-// improves (walking a tile further in, or turning to face it) — better
-// than misrepresenting whether a path is open, since the minimap already
-// tells the player the truth about that.
-function renderSideWalls(scene, trace, slice, sign, dirIdx, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize) {
-  const { depth, blocked } = trace;
-
-  for (let i = 1; i <= depth; i++) {
-    const offsetX = sign * i * TILE;
-    scene.appendChild(panelEl(
-      'scene-slice floor-slice',
-      TILE, TILE,
-      `translate3d(${offsetX}px, ${WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(90deg)`,
-      wallBgSize
-    ));
-    scene.appendChild(panelEl(
-      'scene-slice ceiling-slice',
-      TILE, TILE,
-      `translate3d(${offsetX}px, ${-WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(-90deg)`,
-      wallSideBgSize
-    ));
-  }
-
-  if (!blocked || depth > safeSideCapTiles(slice.depth)) return; // no real wall within safe view range — leave it open, not faked shut
-
-  const wallOffsetX = sign * (depth + 0.5) * TILE;
-  const wall = panelEl(
-    `scene-slice wall-side ${sign < 0 ? 'left' : 'right'}`,
-    TILE, WALL_HEIGHT,
-    `translate3d(${wallOffsetX}px, 0px, ${zCenter}px) rotateY(${sign < 0 ? 90 : -90}deg)`,
-    wallSideBgSize
-  );
-  // Only a genuinely adjacent wall (depth 0) ever gets a torch, same as
-  // before — a wall several tiles into an open room isn't "along the
-  // corridor" in the sense the torch density was tuned for.
-  if (depth === 0 && hasTorchOnWall(slice.x, slice.y, dirIdx, slice.depth)) {
-    wall.style.transformStyle = 'preserve-3d';
-    wall.appendChild(torchEl(TILE, WALL_HEIGHT));
-  }
-  scene.appendChild(wall);
-}
-
-// renderSideWalls only ever looks straight sideways from each forward
-// slice's own (x,y) — it has no notion of the DIAGONAL corner between
-// one slice's lateral reach and the next slice's, so when a room's
-// boundary steps in or out as you look farther down it (a corridor
-// widening into a room, an alcove, an irregular room shape — anything
-// dungeonGen.js's rectangular rooms connected by corridors produces
-// constantly), nothing ever closes that corner. Floor and ceiling still
-// render correctly on both sides of the step individually, but the gap
-// between them is just empty space, and whatever's beyond it — another
-// wall, another room — shows through where solid rock belongs.
-//
-// This closes that gap: wherever the traced depth to one side differs
-// between a slice and the next-nearer one, there's a real perpendicular
-// wall segment at that boundary, spanning from the nearer reach to the
-// farther one. It renders as a plain forward-facing panel — the same
-// unrotated orientation as the main dead-end wall — because the viewer
-// is always on the near (smaller-z) side of this boundary and so always
-// sees its front face, whichever way the step actually goes.
-//
-// Both traces have to be genuinely blocked (a real wall found) for this
-// to fire. openSideDepth gives up after SIDE_MAX_DEPTH tiles and reports
-// that as `depth` even with nothing there (blocked: false) — treating
-// that cap as though it were the true wall position, the same mistake
-// renderSideWalls avoids for a single wall, is worse here: it draws a
-// panel spanning all the way out to that fabricated edge, at whatever
-// width and offset that implies, which can be wide enough to swallow
-// the entire forward view — including the real, closer geometry (like
-// the actual front wall) it has no business standing in front of. Where
-// either side is unconfirmed, this leaves the corner open rather than
-// guessing at where to close it, same principle as renderSideWalls.
-function renderSideStep(scene, nearTrace, farTrace, sign, boundaryDepthIndex, TILE, WALL_HEIGHT, wallBgSize) {
-  if (!nearTrace.blocked || !farTrace.blocked) return; // at least one side is an unconfirmed guess, not a real wall — don't fake the corner
-  if (nearTrace.depth === farTrace.depth) return; // boundary is flush, no corner to close
-  const lo = Math.min(nearTrace.depth, farTrace.depth);
-  const hi = Math.max(nearTrace.depth, farTrace.depth);
-  const z = -boundaryDepthIndex * TILE;
-  const width = (hi - lo) * TILE;
-  const centerOffset = sign * ((lo + hi) / 2) * TILE;
-  scene.appendChild(panelEl(
-    'scene-slice wall-front',
-    width, WALL_HEIGHT,
-    `translate3d(${centerOffset}px, 0px, ${z}px)`,
-    wallBgSize
-  ));
-}
-
 export function renderScene(viewportEl, map) {
   viewportEl.innerHTML = '';
   const vw = viewportEl.clientWidth || 640;
@@ -422,13 +360,12 @@ export function renderScene(viewportEl, map) {
   // true local pixel size. Putting the nearest wall's near edge exactly
   // at z=0, sized to exactly vw wide, means that edge lands exactly on
   // the viewport's own left/right edges: no gap, and no need to solve
-  // for a scale factor at all. Everything farther in (zFar and beyond)
-  // is at z<0 and shrinks normally from there.
+  // for a scale factor at all. Everything farther in is at z<0 and
+  // shrinks normally from there.
   const TILE = vw;
   const PITCH = TILE / PITCH_DIVISIONS;
   const WALL_HEIGHT = Math.ceil((vh * WALL_HEIGHT_RATIO) / PITCH) * PITCH;
   const PERSPECTIVE = TILE * FOV_RATIO;
-  const EYE_Z = 0;
 
   const wallSideBgSize = `100% 100%, ${PITCH}px ${PITCH}px`;
   const wallBgSize = `${PITCH}px ${PITCH}px`;
@@ -436,30 +373,32 @@ export function renderScene(viewportEl, map) {
   const scene = makeEl('scene-3d');
   scene.style.perspective = `${PERSPECTIVE}px`;
 
-  const { x, y, facing } = map.playerPos;
-  const slices = look(map, x, y, facing);
-  const leftDir = (facing + 3) % 4;
-  const rightDir = (facing + 1) % 4;
+  const { x: px, y: py, facing } = map.playerPos;
+  const cells = floodFill(map, px, py, facing);
 
-  // Traced once per slice up front (rather than inside renderSideWalls)
-  // so renderSideStep can compare a slice's reach against the very next
-  // slice's — see renderSideStep for why that comparison is needed.
-  const leftTraces = slices.map((slice) => openSideDepth(map, slice.x, slice.y, leftDir));
-  const rightTraces = slices.map((slice) => openSideDepth(map, slice.x, slice.y, rightDir));
+  // Draw farthest-forward first. The browser sorts overlapping 3D
+  // geometry within the preserve-3d context on its own regardless of
+  // append order, but painting far-to-near keeps things sane for any
+  // flat 2D overlay added after (the fog vignette).
+  cells.sort((a, b) => b.forward - a.forward);
 
-  // Draw back-to-front. The browser sorts overlapping 3D geometry within
-  // the preserve-3d context on its own, but painting far-to-near keeps
-  // things sane for any flat 2D overlay added after (the fog vignette).
-  for (let i = slices.length - 1; i >= 0; i--) {
-    const slice = slices[i];
-    const zNear = -(EYE_Z + slice.depth * TILE);
+  // Every physical wall is shared by (up to) two adjacent cells, and the
+  // flood fill can legitimately visit both sides of it (a real dungeon
+  // can loop around), so track which walls have already had a panel
+  // drawn — keyed canonically, so it doesn't matter which of the two
+  // cells got there first.
+  const drawnWalls = new Set();
+
+  for (const { x, y, forward, right, cell } of cells) {
+    const offsetX = right * TILE;
+    const zNear = -forward * TILE;
     const zFar = zNear - TILE;
     const zCenter = zNear - TILE / 2;
 
     scene.appendChild(panelEl(
       'scene-slice floor-slice',
       TILE, TILE,
-      `translate3d(0px, ${WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(90deg)`,
+      `translate3d(${offsetX}px, ${WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(90deg)`,
       wallBgSize
     ));
 
@@ -471,45 +410,83 @@ export function renderScene(viewportEl, map) {
     scene.appendChild(panelEl(
       'scene-slice ceiling-slice',
       TILE, TILE,
-      `translate3d(0px, ${-WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(-90deg)`,
+      `translate3d(${offsetX}px, ${-WALL_HEIGHT / 2}px, ${zCenter}px) rotateX(-90deg)`,
       wallSideBgSize
     ));
 
-    renderSideWalls(scene, leftTraces[i], slice, -1, leftDir, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize);
-    renderSideWalls(scene, rightTraces[i], slice, 1, rightDir, zCenter, TILE, WALL_HEIGHT, wallBgSize, wallSideBgSize);
+    for (let dirIdx = 0; dirIdx < 4; dirIdx++) {
+      if (!map.hasWall(x, y, dirIdx)) continue; // open — nothing to draw on this side
 
-    // The corner between this slice's own lateral reach and the very
-    // next (nearer) slice's — see renderSideStep. Compared here rather
-    // than in the loop's own i>0 branch below the front-wall handling so
-    // it happens once per boundary, keyed to the farther slice of the
-    // pair (this one), regardless of draw order.
-    if (i > 0) {
-      renderSideStep(scene, leftTraces[i - 1], leftTraces[i], -1, i, TILE, WALL_HEIGHT, wallBgSize);
-      renderSideStep(scene, rightTraces[i - 1], rightTraces[i], 1, i, TILE, WALL_HEIGHT, wallBgSize);
-    }
+      const wKey = canonicalWall(x, y, dirIdx).join(',');
+      if (drawnWalls.has(wKey)) continue;
 
-    if (slice.hasFrontWall) {
-      const isDoor = slice.features.includes('door');
-      const isStairs = slice.features.includes('stairsDown');
-      const front = panelEl(
-        `scene-slice ${isDoor ? 'opening-door' : isStairs ? 'opening-stairs' : 'wall-front'}`,
-        TILE, WALL_HEIGHT,
-        `translate3d(0px, 0px, ${zFar}px)`,
-        wallBgSize
-      );
-      if (isStairs) {
-        const label = makeEl('stairs-label');
-        label.innerHTML = 'Stairs Down<span class="chevron">&#9660;</span>';
-        front.appendChild(label);
-      } else if (!isDoor && hasTorchOnWall(slice.x, slice.y, facing, slice.depth)) {
-        // torchEl only cares about the panel's own width/height to size
-        // and center itself — it doesn't know or care that this panel
-        // faces the camera directly instead of receding to the side, so
-        // the exact same call works here as it does for a side wall.
-        front.style.transformStyle = 'preserve-3d';
-        front.appendChild(torchEl(TILE, WALL_HEIGHT));
+      // Direction of this wall relative to the CAMERA, not the map: 0 =
+      // the side facing the same way the camera is looking (the far
+      // edge of this cell, blocking travel further forward), 1 = right,
+      // 2 = the side facing back toward the camera (the near edge of
+      // this cell), 3 = left. This is the one fixed rotation the whole
+      // renderer needs — everywhere below reasons in these terms
+      // instead of raw compass directions.
+      const relDir = (dirIdx - facing + 4) % 4;
+
+      // The near edge (relDir 2) of the player's OWN cell (forward 0) is
+      // the boundary directly behind the player — literally coincident
+      // with the camera plane (z=0). It's never visible (nothing renders
+      // behind the camera) and would otherwise show up as a degenerate,
+      // screen-filling panel sitting right at the lens, so skip it.
+      if (relDir === 2 && forward === 0) continue;
+
+      drawnWalls.add(wKey);
+
+      if (relDir === 0 || relDir === 2) {
+        // A wall perpendicular to the view direction: the cell's far
+        // edge (relDir 0, blocking travel further forward) or near edge
+        // (relDir 2, closing off a recessed nook/step from the near
+        // side) — both render the same way, just at different depths.
+        // This single case is what used to need a whole separate
+        // function (renderSideStep) to patch in after the fact; here
+        // it's just "this cell has a wall on that side", no different
+        // from any other wall.
+        const z = relDir === 0 ? zFar : zNear;
+        const isDoor = relDir === 0 && !!cell.features?.includes('door');
+        const isStairs = relDir === 0 && !!cell.features?.includes('stairsDown');
+        const panel = panelEl(
+          `scene-slice ${isDoor ? 'opening-door' : isStairs ? 'opening-stairs' : 'wall-front'}`,
+          TILE, WALL_HEIGHT,
+          `translate3d(${offsetX}px, 0px, ${z}px)`,
+          wallBgSize
+        );
+        if (isStairs) {
+          const label = makeEl('stairs-label');
+          label.innerHTML = 'Stairs Down<span class="chevron">&#9660;</span>';
+          panel.appendChild(label);
+        } else if (!isDoor && hasTorchOnWall(x, y, dirIdx, forward)) {
+          panel.style.transformStyle = 'preserve-3d';
+          panel.appendChild(torchEl(TILE, WALL_HEIGHT));
+        }
+        scene.appendChild(panel);
+      } else {
+        // A wall parallel to the view direction (relDir 1 = right side
+        // of this cell, relDir 3 = left side): a vertical panel spanning
+        // this cell's own depth, positioned at that edge — half a tile
+        // beyond the cell's own center, in whichever direction the wall
+        // actually faces (independent of whether `right` itself is
+        // positive, negative, or zero — a cell directly on the
+        // sightline still has a real left and right edge).
+        const sign = relDir === 1 ? 1 : -1;
+        const edgeOffsetX = offsetX + sign * (TILE / 2);
+        const panel = panelEl(
+          `scene-slice wall-side ${sign < 0 ? 'left' : 'right'}`,
+          TILE, WALL_HEIGHT,
+          `translate3d(${edgeOffsetX}px, 0px, ${zCenter}px) rotateY(${sign < 0 ? 90 : -90}deg)`,
+          wallSideBgSize
+        );
+        if (hasTorchOnWall(x, y, dirIdx, forward)) {
+          panel.style.transformStyle = 'preserve-3d';
+          panel.appendChild(torchEl(TILE, WALL_HEIGHT));
+        }
+        scene.appendChild(panel);
       }
-      scene.appendChild(front);
     }
   }
 

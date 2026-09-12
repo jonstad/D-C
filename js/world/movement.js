@@ -3,7 +3,7 @@
 // fails (bumped a wall) and logs that instead, per the exploration
 // turn loop in the plan.
 
-import { state, addLog, markDiscovered, startNewLevel } from '../core/gameState.js';
+import { state, addLog, markDiscovered, goToLevel } from '../core/gameState.js';
 import { tickWorldTurn } from '../core/turnManager.js';
 import { FACING_VECTORS } from './mapModel.js';
 import { bus } from '../core/eventBus.js';
@@ -56,17 +56,30 @@ function onArrive() {
   bus.emit('playerMoved');
 }
 
-// Generates the next floor down and swaps it in — see
-// core/gameState.js's startNewLevel() for exactly what that resets
-// (the encounter counter and discovered/fog-of-war set) and what it
-// deliberately leaves alone (quests, party). Called the instant the
-// player arrives on a stairsDown tile (see checkTileEvents below), so
-// there's no separate "use stairs" action to wire up yet.
+// Generates the next floor down (or restores it, if this run already
+// visited it before) and swaps it in — see core/gameState.js's
+// goToLevel() for exactly what that snapshots/restores/resets. Called
+// only once the player has confirmed the stairs-down prompt (see
+// confirmStairs below) — checkTileEvents() itself no longer descends
+// automatically.
 function descendLevel() {
-  const map = loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff });
-  startNewLevel(map);
-  markDiscovered(map.playerPos.x, map.playerPos.y);
+  goToLevel(state.level + 1, () => loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff }));
+  markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
   addLog(`You descend to level ${state.level}.`);
+  bus.emit('levelChanged', { level: state.level });
+}
+
+// Mirror of descendLevel() for the trip back up. In practice the level
+// above is always already cached in state.levels (you can only ever be
+// standing on a stairsUp tile at depth N having previously come down
+// from depth N-1), so the generator passed here is only a defensive
+// fallback and shouldn't ever actually run.
+function ascendLevel() {
+  goToLevel(state.level - 1, () => loadProceduralLevel({
+    width: 16, height: 16, seed: Date.now() & 0xffffffff, withStairsUp: false,
+  }));
+  markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
+  addLog(`You climb back up to level ${state.level}.`);
   bus.emit('levelChanged', { level: state.level });
 }
 
@@ -75,21 +88,40 @@ function checkTileEvents() {
   const { x, y } = map.playerPos;
   if (maybeTriggerTileEncounter(map, x, y)) return;
   const exit = map.exitAt(x, y);
-  if (exit) {
-    addLog(`You see ${exit.type === 'stairsDown' ? 'stairs leading down' : 'an exit'} here.`);
+  if (exit && (exit.type === 'stairsDown' || exit.type === 'stairsUp')) {
+    const isDown = exit.type === 'stairsDown';
+    addLog(`You see stairs leading ${isDown ? 'down' : 'back up'} here.`);
     // core/questManager.js listens for this to complete any active
-    // 'reachStairs' quest — emitted every time you're on the tile
-    // (simpler than tracking "have we already told quests about this"
-    // here), but that's harmless: a quest that's already complete just
-    // ignores it.
-    if (exit.type === 'stairsDown') {
-      bus.emit('stairsReached', { x, y });
-      descendLevel();
-      return; // state.map was just replaced — nothing below should touch the old one
-    }
+    // 'reachStairs' quest — emitted every time you're on the stairsDown
+    // tile (simpler than tracking "have we already told quests about
+    // this" here), but that's harmless: a quest that's already complete
+    // just ignores it. Only stairsDown counts for that quest, matching
+    // its original "descend to progress" intent.
+    if (isDown) bus.emit('stairsReached', { x, y });
+    // Don't act yet — ui/main.js shows a Yes/No prompt and calls
+    // confirmStairs()/cancelStairs() below once the player answers.
+    state.pendingStairs = { type: exit.type, x, y };
+    bus.emit('stairsPrompt', { type: exit.type });
   }
   const items = map.itemsAt(x, y);
   if (items.length) addLog(`There is something here: ${items.map((i) => i.itemId).join(', ')}.`);
+}
+
+// Called by main.js when the player answers "Yes" to the stairs prompt.
+export function confirmStairs() {
+  const pending = state.pendingStairs;
+  if (!pending) return;
+  state.pendingStairs = null;
+  if (pending.type === 'stairsDown') descendLevel();
+  else ascendLevel();
+}
+
+// Called by main.js when the player answers "No" (or dismisses) the
+// stairs prompt — nothing to undo, the party just stays put.
+export function cancelStairs() {
+  if (!state.pendingStairs) return;
+  state.pendingStairs = null;
+  bus.emit('stairsPromptCancel');
 }
 
 export function moveForward() {

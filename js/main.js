@@ -41,6 +41,10 @@ const btnOpenQuests = document.getElementById('btn-open-quests');
 const btnCloseQuests = document.getElementById('btn-close-quests');
 const questListEl = document.getElementById('quest-list');
 const questBannerEl = document.getElementById('quest-banner');
+const stairsPromptEl = document.getElementById('stairs-prompt');
+const stairsPromptTextEl = document.getElementById('stairs-prompt-text');
+const btnStairsYes = document.getElementById('btn-stairs-yes');
+const btnStairsNo = document.getElementById('btn-stairs-no');
 
 // --- Combat DOM refs -----------------------------------------------------
 const combatActionsEl = document.getElementById('combat-actions');
@@ -113,7 +117,7 @@ async function startExploring() {
     state.map = await loadTextLevel('js/data/levels/level01.txt');
   } catch (err) {
     console.error('Failed to load the fixed opening level, starting on a random one instead:', err);
-    state.map = loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff });
+    state.map = loadProceduralLevel({ width: 16, height: 16, seed: Date.now() & 0xffffffff, withStairsUp: false });
   }
   initQuests();
   markDiscovered(state.map.playerPos.x, state.map.playerPos.y);
@@ -136,6 +140,7 @@ const MOVE_ACTIONS = {
 };
 
 controlsEl.addEventListener('click', (e) => {
+  if (state.pendingStairs) return; // stairs prompt is up — answer it first
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const action = MOVE_ACTIONS[btn.dataset.action];
@@ -153,6 +158,7 @@ const KEY_MAP = {
 
 window.addEventListener('keydown', (e) => {
   if (state.screen !== 'explore') return;
+  if (state.pendingStairs) return; // stairs prompt is up — answer it first
   const actionName = KEY_MAP[e.key];
   if (!actionName) return;
   e.preventDefault();
@@ -162,6 +168,26 @@ window.addEventListener('keydown', (e) => {
 bus.on('playerMoved', refreshExploreUI);
 bus.on('playerTurned', refreshExploreUI);
 bus.on('log', appendLogLine);
+
+// --- STAIRS PROMPT -----------------------------------------------------
+// world/movement.js sets state.pendingStairs and emits 'stairsPrompt'
+// the instant the party arrives on a stairsDown/stairsUp tile, instead
+// of descending/ascending right away. This just shows the modal and
+// wires its two buttons to confirmStairs()/cancelStairs() — the actual
+// level swap (and what happens to the old one) lives entirely in
+// movement.js/gameState.js.
+bus.on('stairsPrompt', ({ type }) => {
+  stairsPromptTextEl.textContent = type === 'stairsDown'
+    ? 'Descend to the next level?'
+    : 'Climb back up to the previous level?';
+  stairsPromptEl.classList.remove('hidden');
+});
+
+bus.on('stairsPromptCancel', () => stairsPromptEl.classList.add('hidden'));
+bus.on('levelChanged', () => stairsPromptEl.classList.add('hidden'));
+
+btnStairsYes.addEventListener('click', () => movement.confirmStairs());
+btnStairsNo.addEventListener('click', () => movement.cancelStairs());
 
 // --- QUESTS ----------------------------------------------------------------
 // A pure navigation screen — opening/closing it doesn't tick a turn or

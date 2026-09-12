@@ -1,0 +1,55 @@
+/* Stairs descend/ascend confirmation modal (index.html's
+   #stairs-prompt). Sits above everything else the same way
+   .quest-banner does, but — unlike that banner — it blocks input:
+   main.js pauses movement while state.pendingStairs is set, and this
+   overlay's own backdrop makes that pause visible rather than leaving
+   the player wondering why their keys stopped doing anything. */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 5, 3, 0.72);
+}
+
+.modal-box {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 24px 30px;
+  max-width: min(360px, 84vw);
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-box p {
+  margin: 0 0 20px 0;
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+
+.btn-secondary {
+  background: var(--stone-dark);
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  font-weight: bold;
+  font-size: 1.1rem;
+  padding: 12px 32px;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 0.05rem;
+}
+
+.btn-secondary:hover {
+  color: var(--text);
+  border-color: var(--stone-light);
+}

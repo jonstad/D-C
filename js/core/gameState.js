@@ -19,8 +19,10 @@ export const state = {
   log: [],
   combat: null, // set by combat/combatEngine.js's startCombat(), null outside combat
   quests: [], // set by core/questManager.js's initQuests(), one run's worth of { ...def, progress, status }
-  level: 1, // current dungeon depth — bumped by startNewLevel() below, never reset mid-level
-  encounterCount: 0, // encounters fired on this level so far; combat/combatEngine.js caps this at MAX_ENCOUNTERS_PER_LEVEL and startNewLevel() resets it to 0
+  level: 1, // current dungeon depth — bumped/dropped by goToLevel() below, never reset mid-level
+  encounterCount: 0, // encounters fired on this level so far; combat/combatEngine.js caps this at MAX_ENCOUNTERS_PER_LEVEL and goToLevel() resets it to 0 for a brand-new level
+  levels: new Map(), // depth -> { map, discovered, encounterCount } snapshot of every level visited this run — see goToLevel()
+  pendingStairs: null, // { type: 'stairsDown'|'stairsUp', x, y } while a descend/ascend confirmation is awaiting the player's answer, else null
 };
 
 export function resetGame() {
@@ -34,21 +36,52 @@ export function resetGame() {
   state.quests = [];
   state.level = 1;
   state.encounterCount = 0;
+  state.levels = new Map();
+  state.pendingStairs = null;
 }
 
-// Called by world/movement.js's descendLevel() when the player steps
-// onto a stairsDown tile — swaps in the freshly generated map for the
-// next floor, resets the per-level encounter counter and the
-// discovered set (the old floor's fog-of-war has nothing to do with
-// the new one), and bumps the depth counter. Quests are NOT touched
-// here — they're a per-run thing (like state.party), not a per-level
-// one, same as the comment on QUEST_DATA's reachStairs type already
-// implies ("one visit is enough to complete it outright").
-export function startNewLevel(map) {
-  state.map = map;
-  state.discovered = new Set();
-  state.encounterCount = 0;
-  state.level += 1;
+// Moves the party to `newDepth`, keeping every level visited this run
+// alive in memory so leaving one (by descending or ascending) and
+// coming back later restores the exact same layout, monster/encounter
+// state, and fog-of-war rather than regenerating something new.
+//
+// The current level's live map/discovered/encounterCount are snapshot
+// into state.levels under the depth we're LEAVING before we touch
+// anything else. Then: if `newDepth` was already visited this run, its
+// snapshot is restored as-is (including playerPos, which was sitting on
+// the connecting stairs tile the moment we left it, so the party
+// re-arrives exactly where they'd expect). Otherwise `generateMapFn()`
+// builds a brand-new level for that depth, with a fresh discovered set
+// and encounter budget, which is itself immediately snapshot so a later
+// return trip finds it too.
+//
+// Quests are NOT touched here — they're a per-run thing (like
+// state.party), not a per-level one, same as the comment on
+// QUEST_DATA's reachStairs type already implies ("one visit is enough
+// to complete it outright").
+export function goToLevel(newDepth, generateMapFn) {
+  state.levels.set(state.level, {
+    map: state.map,
+    discovered: state.discovered,
+    encounterCount: state.encounterCount,
+  });
+
+  const cached = state.levels.get(newDepth);
+  if (cached) {
+    state.map = cached.map;
+    state.discovered = cached.discovered;
+    state.encounterCount = cached.encounterCount;
+  } else {
+    state.map = generateMapFn();
+    state.discovered = new Set();
+    state.encounterCount = 0;
+    state.levels.set(newDepth, {
+      map: state.map,
+      discovered: state.discovered,
+      encounterCount: state.encounterCount,
+    });
+  }
+  state.level = newDepth;
 }
 
 export function addLog(message) {

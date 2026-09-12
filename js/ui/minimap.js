@@ -43,10 +43,13 @@ export function renderMinimap(canvas, map, discovered) {
     if (cell.walls.W) { ctx.moveTo(px, py); ctx.lineTo(px, py + CELL); }
     ctx.stroke();
 
-    if (cell.features?.includes('stairsDown')) {
-      ctx.fillStyle = '#c9a24b';
-      ctx.fillRect(px + CELL / 2 - 3, py + CELL / 2 - 3, 6, 6);
-    }
+    // Stairs get a distinct filled triangle rather than the plain
+    // square used before — pointing down for stairsDown, up for
+    // stairsUp — so the two are tellable apart at a glance (and from
+    // the you-are-here player triangle below, which is always the same
+    // cream color) without needing a legend.
+    if (cell.features?.includes('stairsDown')) drawStairMarker(ctx, px, py, 'down');
+    if (cell.features?.includes('stairsUp')) drawStairMarker(ctx, px, py, 'up');
   }
 
   // Player marker: a small triangle rotated to match facing.
@@ -68,6 +71,30 @@ export function renderMinimap(canvas, map, discovered) {
   ctx.restore();
 
   drawCompass(ctx, canvas, map.playerPos.facing);
+}
+
+// A small filled triangle centered on the tile at (px,py), pointing
+// down (stairsDown) or up (stairsUp). Both use the same accent gold as
+// the compass's current-facing label, keeping "things on the map you
+// can interact with" one consistent color — direction of the point is
+// what tells the two apart, not color.
+function drawStairMarker(ctx, px, py, direction) {
+  const cx = px + CELL / 2;
+  const cy = py + CELL / 2;
+  const half = 4;
+  ctx.fillStyle = '#c9a24b';
+  ctx.beginPath();
+  if (direction === 'down') {
+    ctx.moveTo(cx - half, cy - half);
+    ctx.lineTo(cx + half, cy - half);
+    ctx.lineTo(cx, cy + half);
+  } else {
+    ctx.moveTo(cx - half, cy + half);
+    ctx.lineTo(cx + half, cy + half);
+    ctx.lineTo(cx, cy - half);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 // Four fixed labels pinned to the canvas's own edges (not the map's

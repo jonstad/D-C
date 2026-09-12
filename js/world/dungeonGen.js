@@ -108,6 +108,14 @@ export function generateDungeon({
   seed = Date.now() & 0xffffffff,
   monsterGroups = ['slime', 'orc', 'skeleton'],
   itemPool = ['potion_minor_heal'],
+  // Every level reached by descending stairs needs a way back up, so a
+  // stairsUp feature/exit is placed at the spawn point by default (the
+  // party always arrives there via stairs from the level above, so
+  // that's exactly where the return trip should land). The one caller
+  // that does NOT want this is main.js's own emergency fallback when
+  // the fixed level 1 file fails to load — there's no level above a
+  // level 1 substitute, so nothing to go back up to.
+  withStairsUp = true,
 } = {}) {
   const rand = mulberry32(seed);
   const idx = (x, y) => y * width + x;
@@ -190,6 +198,16 @@ export function generateDungeon({
 
   tiles[idx(endRoom.cx, endRoom.cy)].features.push('stairsDown');
   const exits = [{ at: [endRoom.cx, endRoom.cy], to: null, type: 'stairsDown' }];
+
+  // Guard against the degenerate case (only possible on a grid too
+  // small to fit more than one room) where the start and end room are
+  // literally the same cell — exitAt() only ever returns the first
+  // match at a given tile, so a second exit stacked on the exact same
+  // spot as stairsDown would just be unreachable dead weight.
+  if (withStairsUp && (start.x !== endRoom.cx || start.y !== endRoom.cy)) {
+    tiles[idx(start.x, start.y)].features.push('stairsUp');
+    exits.push({ at: [start.x, start.y], to: null, type: 'stairsUp' });
+  }
 
   // Scatter encounters/items across room floors only (corridors are
   // just connective tissue, not a natural home for either) — roughly

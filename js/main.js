@@ -184,7 +184,16 @@ bus.on('stairsPrompt', ({ type }) => {
 });
 
 bus.on('stairsPromptCancel', () => stairsPromptEl.classList.add('hidden'));
-bus.on('levelChanged', () => stairsPromptEl.classList.add('hidden'));
+// world/movement.js's descend/ascendLevel() swap state.map (and often
+// state.discovered/turnCount) without going through the normal
+// stepInto()->onArrive() path, so they don't emit 'playerMoved' — the
+// event refreshExploreUI() is normally hung off. Without this, the old
+// level stayed on screen (viewport, minimap, HUD) until whatever move
+// the player made next happened to trigger a redraw.
+bus.on('levelChanged', () => {
+  stairsPromptEl.classList.add('hidden');
+  refreshExploreUI();
+});
 
 btnStairsYes.addEventListener('click', () => movement.confirmStairs());
 btnStairsNo.addEventListener('click', () => movement.cancelStairs());

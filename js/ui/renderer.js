@@ -449,7 +449,14 @@ export function renderScene(viewportEl, map) {
         // from any other wall.
         const z = relDir === 0 ? zFar : zNear;
         const isDoor = relDir === 0 && !!cell.features?.includes('door');
-        const isStairs = relDir === 0 && !!cell.features?.includes('stairsDown');
+        // Same "this is the way through" treatment for both directions —
+        // one gold-glowing opening-stairs panel, differing only in the
+        // label/chevron below — so stairsUp reads as clearly as
+        // stairsDown always has, instead of looking like a plain wall.
+        const stairsDir = relDir === 0
+          ? (cell.features?.includes('stairsDown') ? 'down' : cell.features?.includes('stairsUp') ? 'up' : null)
+          : null;
+        const isStairs = !!stairsDir;
         const panel = panelEl(
           `scene-slice ${isDoor ? 'opening-door' : isStairs ? 'opening-stairs' : 'wall-front'}`,
           TILE, WALL_HEIGHT,
@@ -458,7 +465,9 @@ export function renderScene(viewportEl, map) {
         );
         if (isStairs) {
           const label = makeEl('stairs-label');
-          label.innerHTML = 'Stairs Down<span class="chevron">&#9660;</span>';
+          label.innerHTML = stairsDir === 'down'
+            ? 'Stairs Down<span class="chevron">&#9660;</span>'
+            : 'Stairs Up<span class="chevron">&#9650;</span>';
           panel.appendChild(label);
         } else if (!isDoor && hasTorchOnWall(x, y, dirIdx, forward)) {
           panel.style.transformStyle = 'preserve-3d';
